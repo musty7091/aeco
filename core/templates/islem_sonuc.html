@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>İşlem Tamamlandı</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light d-flex align-items-center justify-content-center" style="height: 100vh;">
+
+    <div class="card shadow text-center p-5" style="max-width: 500px; border-radius: 20px;">
+        <div class="mb-4">
+            <div style="font-size: 60px;">✅</div>
+        </div>
+        <h2 class="mb-3">İşlem Başarıyla Kaydedildi</h2>
+        <p class="text-muted mb-4">
+            Kayıt veritabanına işlendi. Bu işlem için yazılı döküm/çıktı almak ister misiniz?
+        </p>
+
+        <div class="d-grid gap-3">
+            <a href="{% url 'belge_yazdir' model_name pk %}" target="_blank" class="btn btn-primary btn-lg">
+                🖨️ EVET, FİŞ YAZDIR
+            </a>
+            <a href="/admin/core/{{ model_name }}/" class="btn btn-outline-secondary">
+                Hayır, Listeye Dön
+            </a>
+        </div>
+    </div>
+
+</body>
+</html>
