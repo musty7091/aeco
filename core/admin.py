@@ -38,7 +38,7 @@ def ozel_yonlendirme(model_name, obj):
     return redirect('islem_sonuc', model_name=model_name, pk=obj.pk)
 
 
-# --- TEKLİF YÖNETİMİ (HİBRİT YAPI & DÜZELTİLMİŞ GÖRÜNÜM) ---
+# --- TEKLİF YÖNETİMİ (HİBRİT YAPI & KİLİTLEME EKLENDİ) ---
 @admin.register(Teklif)
 class TeklifAdmin(admin.ModelAdmin):
     list_display = ('kalem_veya_malzeme', 'tedarikci', 'miktar', 'birim_fiyat_goster', 'toplam_fiyat_orijinal_goster', 'durum')
@@ -46,7 +46,6 @@ class TeklifAdmin(admin.ModelAdmin):
     list_editable = ('durum',)
     search_fields = ('is_kalemi__isim', 'malzeme__isim', 'tedarikci__firma_unvani')
     
-    # 'birim_fiyat_kdvli_goster' alanını buraya ekledik (GÖRÜNTÜLEME İÇİN)
     readonly_fields = ('akilli_panel', 'kur_degeri', 'birim_fiyat_kdvli_goster') 
 
     def save_model(self, request, obj, form, change):
@@ -88,6 +87,7 @@ class TeklifAdmin(admin.ModelAdmin):
                 const paraSelect = document.getElementById('id_para_birimi');
                 const kurInput = document.querySelector('.field-kur_degeri .readonly'); 
 
+                // 1. KUR GÜNCELLEME SCRIPTİ
                 if (paraSelect && kurInput) {{
                     paraSelect.addEventListener('change', function() {{
                         const secilen = this.value;
@@ -98,6 +98,49 @@ class TeklifAdmin(admin.ModelAdmin):
                         }}
                     }});
                 }}
+
+                // 2. İŞ KALEMİ / MALZEME KİLİTLEME (YENİ EKLENEN KISIM)
+                // Django admin ID'leri: id_is_kalemi, id_malzeme
+                const isKalemiSelect = document.getElementById('id_is_kalemi');
+                const malzemeSelect = document.getElementById('id_malzeme');
+
+                function toggleFields() {{
+                    if (!isKalemiSelect || !malzemeSelect) return;
+
+                    const isKalemiVal = isKalemiSelect.value;
+                    const malzemeVal = malzemeSelect.value;
+
+                    // İş Kalemi seçiliyse, Malzeme'yi kilitle
+                    if (isKalemiVal) {{
+                        malzemeSelect.disabled = true;
+                        malzemeSelect.style.backgroundColor = '#e9ecef'; // Gri renk
+                        malzemeSelect.style.cursor = 'not-allowed';
+                    }} else {{
+                        malzemeSelect.disabled = false;
+                        malzemeSelect.style.backgroundColor = '';
+                        malzemeSelect.style.cursor = 'default';
+                    }}
+
+                    // Malzeme seçiliyse, İş Kalemi'ni kilitle
+                    if (malzemeVal) {{
+                        isKalemiSelect.disabled = true;
+                        isKalemiSelect.style.backgroundColor = '#e9ecef';
+                        isKalemiSelect.style.cursor = 'not-allowed';
+                    }} else {{
+                        isKalemiSelect.disabled = false;
+                        isKalemiSelect.style.backgroundColor = '';
+                        isKalemiSelect.style.cursor = 'default';
+                    }}
+                }}
+
+                if (isKalemiSelect && malzemeSelect) {{
+                    // Olay dinleyicileri ekle
+                    isKalemiSelect.addEventListener('change', toggleFields);
+                    malzemeSelect.addEventListener('change', toggleFields);
+                    
+                    // Sayfa açıldığında durumu kontrol et (Edit durumu için)
+                    toggleFields();
+                }}
             }});
         </script>
         """
@@ -105,36 +148,23 @@ class TeklifAdmin(admin.ModelAdmin):
 
     akilli_panel.short_description = "Otomatik İşlemler"
 
-    # --- DÜZELTME: fieldsets AYARI (TEK BAŞLIK - ALT ALTA) ---
     fieldsets = (
         ('TEKLİF GİRİŞ FORMU', {
             'fields': (
                 'akilli_panel',
-                
-                # Malzeme ve İş Kalemi alanlarını parantezden çıkardık (Alt alta olsun diye)
                 'is_kalemi', 
                 'malzeme',
                 'tedarikci',
                 'miktar',
-                
-                # Fiyat, Para Birimi ve Kur yan yana kalabilir (Matematiksel bütünlük için)
                 ('birim_fiyat', 'para_birimi', 'kur_degeri'),
-                
-                # KDV DAHİL FİYAT GÖSTERİMİ (YENİ EKLENDİ)
                 'birim_fiyat_kdvli_goster',
-                
-                # KDV bilgileri yan yana
                 ('kdv_dahil_mi', 'kdv_orani'),
-                
-                # Dosya ve Durum yan yana
                 ('teklif_dosyasi', 'durum')
             ),
-            # HTML Kod Hatası Düzeltildi (mark_safe kullanıldı)
             'description': mark_safe('<div class="alert alert-warning" role="alert"><i class="fas fa-exclamation-triangle"></i> <b>DİKKAT:</b> Lütfen ya bir <u>Taşeron İş Kalemi</u> ya da bir <u>Malzeme</u> seçiniz. İkisini birden seçmeyiniz.</div>')
         }),
     )
     
-    # HİBRİT LİSTE GÖSTERİMİ
     def kalem_veya_malzeme(self, obj):
         if obj.is_kalemi:
             return f"🏗️ {obj.is_kalemi.isim}"
@@ -150,11 +180,8 @@ class TeklifAdmin(admin.ModelAdmin):
         return f"{obj.toplam_fiyat_orijinal:,.2f} {obj.para_birimi}"
     toplam_fiyat_orijinal_goster.short_description = "Toplam Tutar (Orijinal)"
 
-    # --- YENİ EKLENEN KDV DAHİL GÖSTERİM FONKSİYONU ---
     def birim_fiyat_kdvli_goster(self, obj):
-        # Eğer kayıt yeniyse (henüz veritabanında yoksa) gösterme
         if obj.pk:
-            # Hesaplama: Birim Fiyat * (1 + KDV Oranı/100)
             kdvli_fiyat = float(obj.birim_fiyat) * (1 + (obj.kdv_orani / 100))
             return mark_safe(f'<b style="color:#27ae60; font-size:1.1em;">{kdvli_fiyat:,.2f} {obj.para_birimi}</b> (KDV Dahil)')
         return "-"
@@ -202,7 +229,6 @@ class OdemeAdmin(admin.ModelAdmin):
 
     def ilgili_is_goster(self, obj):
         if obj.ilgili_teklif:
-            # Teklif modelindeki str metodunu çağırır
             return str(obj.ilgili_teklif)
         return "-"
     ilgili_is_goster.short_description = "İlgili Hakediş / İş"
@@ -277,15 +303,11 @@ class OdemeAdmin(admin.ModelAdmin):
 
 @admin.register(Malzeme)
 class MalzemeAdmin(admin.ModelAdmin):
-    # 'anlik_stok_durumu' sütunu eklendi
     list_display = ('isim', 'birim', 'kritik_stok', 'anlik_stok_durumu')
     search_fields = ('isim',)
 
-    # Bu fonksiyon veritabanındaki hesaplanmış stoku gösterir
     def anlik_stok_durumu(self, obj):
-        stok = obj.stok # Modeldeki 'stok' property'sini çağırıyoruz
-        
-        # Renklendirme mantığı
+        stok = obj.stok 
         if stok <= obj.kritik_stok:
             return mark_safe(f'<span style="color:red; font-weight:bold;">{stok} (KRİTİK)</span>')
         elif stok <= (obj.kritik_stok * 1.5):
@@ -329,37 +351,25 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
     search_fields = ('malzeme__isim', 'aciklama', 'proje_yeri')
     
     def get_readonly_fields(self, request, obj=None):
-        # 1. Standart Kilitler: Talep Eden ve Tarihçeler ELLE DEĞİŞTİRİLEMEZ
         readonly_fields = ['talep_eden', 'onay_tarihi', 'temin_tarihi']
-        
-        # Kullanıcı SAHA_EKIBI grubunda mı?
         is_saha_ekibi = request.user.groups.filter(name='SAHA_EKIBI').exists()
         
-        # SENARYO 1: Yeni kayıt oluşturuluyor
         if obj is None:
             readonly_fields.append('durum')
-            
-        # SENARYO 2: Saha Ekibi düzenleme yapıyor
         elif is_saha_ekibi:
             readonly_fields.append('durum')
             
         return readonly_fields
 
     def save_model(self, request, obj, form, change):
-        # 1. İlk Kayıt: Talep Edeni Ata
         if not obj.pk: 
             obj.talep_eden = request.user
         
-        # 2. Durum Değişikliği Kontrolü (Timeline)
         if change: 
             try:
                 eski_kayit = MalzemeTalep.objects.get(pk=obj.pk)
-                
-                # 'Bekliyor' -> 'Onaylandı'
                 if eski_kayit.durum != 'onaylandi' and obj.durum == 'onaylandi':
                     obj.onay_tarihi = timezone.now()
-                
-                # 'Onaylandı' -> 'Tamamlandı'
                 if eski_kayit.durum != 'tamamlandi' and obj.durum == 'tamamlandi':
                     obj.temin_tarihi = timezone.now()
             except MalzemeTalep.DoesNotExist:

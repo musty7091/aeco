@@ -125,6 +125,7 @@ class Teklif(models.Model):
             raise ValidationError("Aynı anda hem İş Kalemi hem Malzeme seçemezsiniz. Teklif tek bir türde olmalı.")
 
     def save(self, *args, **kwargs):
+        # KDV Dahil işaretlendiyse fiyattan düş
         if self.kdv_dahil_mi:
             self.birim_fiyat = self.birim_fiyat / (1 + (self.kdv_orani / 100))
             self.kdv_dahil_mi = False
@@ -132,7 +133,7 @@ class Teklif(models.Model):
 
     @property
     def toplam_fiyat_tl(self):
-        # Artık self.is_kalemi.hedef_miktar yerine self.miktar kullanıyoruz
+        # Miktar olarak formdaki miktar kullanılır
         tutar_tl = float(self.birim_fiyat) * float(self.kur_degeri) * float(self.miktar)
         kdvli_tutar = tutar_tl * (1 + (self.kdv_orani / 100))
         return kdvli_tutar
@@ -158,7 +159,7 @@ class Teklif(models.Model):
     # ---------------------------------------------------
 
     def __str__(self):
-        nesne = self.is_kalemi.isim if self.is_kalemi else self.malzeme.isim
+        nesne = self.is_kalemi.isim if self.is_kalemi else (self.malzeme.isim if self.malzeme else "Tanımsız")
         return f"{self.tedarikci} - {nesne}"
     
     class Meta:
