@@ -35,3 +35,17 @@
     background-color: #27ae60 !important; /* Üzerine gelince koyu yeşil */
     transform: translateY(-2px);
 }
+
+/* Form Hizalama Düzeltmesi */
+.form-row {
+    border-bottom: 1px solid #f0f0f0; /* Satırlar arasına ince çizgi */
+}
+
+/* Etiketleri (Label) ve Alanları Hizala */
+.field-is_kalemi select,
+.field-malzeme select,
+.field-tedarikci select,
+.field-miktar input {
+    width: 100% !important; /* Kutuları tam genişlik yap */
+    max-width: 600px; /* Çok geniş ekranlarda aşırı uzamasın */
+}

@@ -3,6 +3,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils import timezone
+from django.db.models import Sum # Stok hesabı için
 from .models import (
     Kategori, IsKalemi, Tedarikci, Teklif, GiderKategorisi, Harcama, Odeme, 
     Malzeme, DepoHareket, Hakedis, MalzemeTalep
@@ -37,16 +38,16 @@ def ozel_yonlendirme(model_name, obj):
     return redirect('islem_sonuc', model_name=model_name, pk=obj.pk)
 
 
-# --- TEKLİF YÖNETİMİ (GÜNCELLENDİ) ---
+# --- TEKLİF YÖNETİMİ (HİBRİT YAPI & DÜZELTİLMİŞ GÖRÜNÜM) ---
 @admin.register(Teklif)
 class TeklifAdmin(admin.ModelAdmin):
-    # GÜNCELLEME: 'toplam_fiyat_tl_goster' yerine 'toplam_fiyat_orijinal_goster' kullandık.
-    list_display = ('is_kalemi', 'tedarikci', 'birim_fiyat_goster', 'kdv_orani_goster', 'toplam_fiyat_orijinal_goster', 'durum')
+    list_display = ('kalem_veya_malzeme', 'tedarikci', 'miktar', 'birim_fiyat_goster', 'toplam_fiyat_orijinal_goster', 'durum')
     list_filter = ('durum', 'tedarikci', 'is_kalemi__kategori')
     list_editable = ('durum',)
-    search_fields = ('is_kalemi__isim', 'tedarikci__firma_unvani')
+    search_fields = ('is_kalemi__isim', 'malzeme__isim', 'tedarikci__firma_unvani')
     
-    readonly_fields = ('akilli_panel', 'kur_degeri') 
+    # 'birim_fiyat_kdvli_goster' alanını buraya ekledik (GÖRÜNTÜLEME İÇİN)
+    readonly_fields = ('akilli_panel', 'kur_degeri', 'birim_fiyat_kdvli_goster') 
 
     def save_model(self, request, obj, form, change):
         guncel_kurlar = tcmb_kur_getir()
@@ -104,29 +105,60 @@ class TeklifAdmin(admin.ModelAdmin):
 
     akilli_panel.short_description = "Otomatik İşlemler"
 
+    # --- DÜZELTME: fieldsets AYARI (TEK BAŞLIK - ALT ALTA) ---
     fieldsets = (
-        ('TEKLİF DETAYLARI', {
+        ('TEKLİF GİRİŞ FORMU', {
             'fields': (
                 'akilli_panel',
+                
+                # Malzeme ve İş Kalemi alanlarını parantezden çıkardık (Alt alta olsun diye)
                 'is_kalemi', 
-                'tedarikci', 
+                'malzeme',
+                'tedarikci',
+                'miktar',
+                
+                # Fiyat, Para Birimi ve Kur yan yana kalabilir (Matematiksel bütünlük için)
                 ('birim_fiyat', 'para_birimi', 'kur_degeri'),
+                
+                # KDV DAHİL FİYAT GÖSTERİMİ (YENİ EKLENDİ)
+                'birim_fiyat_kdvli_goster',
+                
+                # KDV bilgileri yan yana
                 ('kdv_dahil_mi', 'kdv_orani'),
+                
+                # Dosya ve Durum yan yana
                 ('teklif_dosyasi', 'durum')
             ),
+            # HTML Kod Hatası Düzeltildi (mark_safe kullanıldı)
+            'description': mark_safe('<div class="alert alert-warning" role="alert"><i class="fas fa-exclamation-triangle"></i> <b>DİKKAT:</b> Lütfen ya bir <u>Taşeron İş Kalemi</u> ya da bir <u>Malzeme</u> seçiniz. İkisini birden seçmeyiniz.</div>')
         }),
     )
     
+    # HİBRİT LİSTE GÖSTERİMİ
+    def kalem_veya_malzeme(self, obj):
+        if obj.is_kalemi:
+            return f"🏗️ {obj.is_kalemi.isim}"
+        elif obj.malzeme:
+            return f"📦 {obj.malzeme.isim}"
+        return "-"
+    kalem_veya_malzeme.short_description = "Hizmet / Malzeme"
+
     def birim_fiyat_goster(self, obj): return f"{obj.birim_fiyat:,.2f} {obj.para_birimi}"
     def kdv_orani_goster(self, obj): return f"%{obj.kdv_orani}"
-    def toplam_fiyat_tl_goster(self, obj): return f"{obj.toplam_fiyat_tl:,.2f} ₺"
-
-    # --- YENİ EKLENEN PARA BİRİMİ GÖSTERİMİ ---
-    def toplam_fiyat_orijinal_goster(self, obj):
-        # Bu fonksiyonun çalışması için models.py içinde 'toplam_fiyat_orijinal' property'si olmalıdır.
-        return f"{obj.toplam_fiyat_orijinal:,.2f} {obj.para_birimi}"
     
+    def toplam_fiyat_orijinal_goster(self, obj):
+        return f"{obj.toplam_fiyat_orijinal:,.2f} {obj.para_birimi}"
     toplam_fiyat_orijinal_goster.short_description = "Toplam Tutar (Orijinal)"
+
+    # --- YENİ EKLENEN KDV DAHİL GÖSTERİM FONKSİYONU ---
+    def birim_fiyat_kdvli_goster(self, obj):
+        # Eğer kayıt yeniyse (henüz veritabanında yoksa) gösterme
+        if obj.pk:
+            # Hesaplama: Birim Fiyat * (1 + KDV Oranı/100)
+            kdvli_fiyat = float(obj.birim_fiyat) * (1 + (obj.kdv_orani / 100))
+            return mark_safe(f'<b style="color:#27ae60; font-size:1.1em;">{kdvli_fiyat:,.2f} {obj.para_birimi}</b> (KDV Dahil)')
+        return "-"
+    birim_fiyat_kdvli_goster.short_description = "Birim Fiyat (KDV DAHİL)"
 
 
 # --- GİDER YÖNETİMİ ---
@@ -170,7 +202,8 @@ class OdemeAdmin(admin.ModelAdmin):
 
     def ilgili_is_goster(self, obj):
         if obj.ilgili_teklif:
-            return f"🏗️ {obj.ilgili_teklif.is_kalemi.isim}"
+            # Teklif modelindeki str metodunu çağırır
+            return str(obj.ilgili_teklif)
         return "-"
     ilgili_is_goster.short_description = "İlgili Hakediş / İş"
 
@@ -240,12 +273,27 @@ class OdemeAdmin(admin.ModelAdmin):
         }),
     )
 
-# --- YENİ EKLENEN ŞANTİYE & DEPO MODÜLLERİ ---
+# --- ŞANTİYE & DEPO MODÜLLERİ ---
 
 @admin.register(Malzeme)
 class MalzemeAdmin(admin.ModelAdmin):
-    list_display = ('isim', 'birim', 'kritik_stok')
+    # 'anlik_stok_durumu' sütunu eklendi
+    list_display = ('isim', 'birim', 'kritik_stok', 'anlik_stok_durumu')
     search_fields = ('isim',)
+
+    # Bu fonksiyon veritabanındaki hesaplanmış stoku gösterir
+    def anlik_stok_durumu(self, obj):
+        stok = obj.stok # Modeldeki 'stok' property'sini çağırıyoruz
+        
+        # Renklendirme mantığı
+        if stok <= obj.kritik_stok:
+            return mark_safe(f'<span style="color:red; font-weight:bold;">{stok} (KRİTİK)</span>')
+        elif stok <= (obj.kritik_stok * 1.5):
+            return mark_safe(f'<span style="color:orange; font-weight:bold;">{stok} (Azalıyor)</span>')
+        else:
+            return mark_safe(f'<span style="color:green;">{stok}</span>')
+    
+    anlik_stok_durumu.short_description = "Anlık Stok"
 
 @admin.register(DepoHareket)
 class DepoHareketAdmin(admin.ModelAdmin):
@@ -280,11 +328,8 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
     list_filter = ('durum', 'oncelik', 'malzeme')
     search_fields = ('malzeme__isim', 'aciklama', 'proje_yeri')
     
-    # -----------------------------------------------------------
-    # GÜNCEL: ALANLARI KİLİTLEME MANTIĞI (READ-ONLY)
-    # -----------------------------------------------------------
     def get_readonly_fields(self, request, obj=None):
-        # 1. Standart Kilitler: Talep Eden ve Tarihçeler ELLE DEĞİŞTİRİLEMEZ (Sistem atar)
+        # 1. Standart Kilitler: Talep Eden ve Tarihçeler ELLE DEĞİŞTİRİLEMEZ
         readonly_fields = ['talep_eden', 'onay_tarihi', 'temin_tarihi']
         
         # Kullanıcı SAHA_EKIBI grubunda mı?
@@ -292,16 +337,13 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
         
         # SENARYO 1: Yeni kayıt oluşturuluyor
         if obj is None:
-            # Yeni kayıtta DURUM değiştirilemesin (Otomatik 'Bekliyor' başlasın)
             readonly_fields.append('durum')
             
         # SENARYO 2: Saha Ekibi düzenleme yapıyor
         elif is_saha_ekibi:
-            # Saha ekibi durumu sonradan değiştiremez (Sadece Ofis onaylar)
             readonly_fields.append('durum')
             
         return readonly_fields
-    # -----------------------------------------------------------
 
     def save_model(self, request, obj, form, change):
         # 1. İlk Kayıt: Talep Edeni Ata
@@ -309,15 +351,15 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
             obj.talep_eden = request.user
         
         # 2. Durum Değişikliği Kontrolü (Timeline)
-        if change: # Eğer kayıt güncelleniyorsa
+        if change: 
             try:
                 eski_kayit = MalzemeTalep.objects.get(pk=obj.pk)
                 
-                # Durum 'Bekliyor' -> 'Onaylandı' olduysa saati bas
+                # 'Bekliyor' -> 'Onaylandı'
                 if eski_kayit.durum != 'onaylandi' and obj.durum == 'onaylandi':
                     obj.onay_tarihi = timezone.now()
                 
-                # Durum -> 'Tamamlandı' olduysa saati bas
+                # 'Onaylandı' -> 'Tamamlandı'
                 if eski_kayit.durum != 'tamamlandi' and obj.durum == 'tamamlandi':
                     obj.temin_tarihi = timezone.now()
             except MalzemeTalep.DoesNotExist:
@@ -325,7 +367,6 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
 
         super().save_model(request, obj, form, change)
 
-    # --- Kaydettikten Sonra Fiş Yazdırma Ekranına Git ---
     def response_change(self, request, obj):
         if "_continue" in request.POST:
             return super().response_change(request, obj)
@@ -335,7 +376,6 @@ class MalzemeTalepAdmin(admin.ModelAdmin):
         if "_continue" in request.POST:
             return super().response_add(request, obj, post_url_continue)
         return redirect('islem_sonuc', model_name='malzemetalep', pk=obj.pk)
-    # ----------------------------------------------------
 
     def miktar_goster(self, obj):
         return f"{obj.miktar} {obj.malzeme.get_birim_display()}"

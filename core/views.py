@@ -43,14 +43,29 @@ def belge_yazdir(request, model_name, pk):
         obj = get_object_or_404(Teklif, pk=pk)
         baslik = "SATIN ALMA / TEKLİF FİŞİ"
         bakiye = hesapla_bakiye(obj.tedarikci)
+        
+        # İsim Belirleme (Hibrit Yapı)
+        if obj.is_kalemi:
+            is_adi = obj.is_kalemi.isim
+        elif obj.malzeme:
+            is_adi = obj.malzeme.isim
+        else:
+            is_adi = "Belirtilmemiş"
+
         belge_data = {
             'İşlem No': f"TK-{obj.id}",
             'Tarih': timezone.now(), 
             'Firma': obj.tedarikci.firma_unvani,
-            'İş Kalemi': obj.is_kalemi.isim,
-            'Birim Fiyat': f"{obj.birim_fiyat:,.2f} {obj.para_birimi}",
-            'Kur': f"{obj.kur_degeri}",
+            'İş Kalemi / Malzeme': is_adi,
+            'Miktar': f"{obj.miktar}",
+            
+            # --- GÜNCELLEME BURADA ---
+            'Birim Fiyat (KDV Hariç)': f"{obj.birim_fiyat:,.2f} {obj.para_birimi}",
             'KDV Oranı': f"%{obj.kdv_orani}",
+            'Birim Fiyat (KDV Dahil)': f"{obj.birim_fiyat_kdvli:,.2f} {obj.para_birimi}", # Yeni Eklenen Satır
+            # -------------------------
+            
+            'Kur': f"{obj.kur_degeri}",
             'Toplam Maliyet (TL)': f"{obj.toplam_fiyat_tl:,.2f} TL",
             'Durum': obj.get_durum_display(),
             '------------------': '------------------', 
@@ -66,7 +81,14 @@ def belge_yazdir(request, model_name, pk):
         bakiye = hesapla_bakiye(obj.tedarikci)
         ilgili_is = "Genel / Mahsuben (Cari Hesaba)"
         if obj.ilgili_teklif:
-            ilgili_is = f"{obj.ilgili_teklif.is_kalemi.isim} (Hakediş Ödemesi)"
+            if obj.ilgili_teklif.is_kalemi:
+                ad = obj.ilgili_teklif.is_kalemi.isim
+            elif obj.ilgili_teklif.malzeme:
+                ad = obj.ilgili_teklif.malzeme.isim
+            else:
+                ad = "Teklif #" + str(obj.ilgili_teklif.id)
+            ilgili_is = f"{ad} (Hakediş Ödemesi)"
+            
         belge_data = {
             'İşlem No': f"OD-{obj.id}",
             'İşlem Tarihi': obj.tarih,
@@ -93,17 +115,14 @@ def belge_yazdir(request, model_name, pk):
             'Tutar': f"{obj.tutar:,.2f} {obj.para_birimi}",
         }
 
-    # --- YENİ EKLENEN KISIM: MALZEME TALEP FORMU ---
     elif model_name == 'malzemetalep':
         obj = get_object_or_404(MalzemeTalep, pk=pk)
         baslik = "MALZEME TALEP VE TAKİP FORMU"
         
-        # Tarihçe Bilgileri (Varsa göster, yoksa bekliyor yaz)
         talep_zamani = obj.tarih.strftime('%d.%m.%Y %H:%M')
         onay_zamani = obj.onay_tarihi.strftime('%d.%m.%Y %H:%M') if obj.onay_tarihi else "- (Bekliyor)"
         temin_zamani = obj.temin_tarihi.strftime('%d.%m.%Y %H:%M') if obj.temin_tarihi else "- (Bekliyor)"
         
-        # Talep Eden Bilgisi (Kullanıcı silinmişse hata vermesin)
         talep_eden_bilgi = "Bilinmiyor"
         if obj.talep_eden:
             talep_eden_bilgi = f"{obj.talep_eden.first_name} {obj.talep_eden.last_name} ({obj.talep_eden.username})"
@@ -123,7 +142,6 @@ def belge_yazdir(request, model_name, pk):
             '🕒 Onaylanma Zamanı': onay_zamani,
             '🚚 Temin/Teslim Zamanı': temin_zamani,
         }
-    # -----------------------------------------------
 
     context = {
         'baslik': baslik,
@@ -144,8 +162,10 @@ def teklif_durum_guncelle(request, teklif_id, yeni_durum):
     """
     teklif = get_object_or_404(Teklif, id=teklif_id)
     if yeni_durum in ['onaylandi', 'reddedildi', 'beklemede']:
-        if yeni_durum == 'onaylandi':
+        # Eğer bu bir İş Kalemi ise diğerlerini reddet, Malzeme ise reddetme (Malzeme çoklu alınabilir)
+        if yeni_durum == 'onaylandi' and teklif.is_kalemi:
             Teklif.objects.filter(is_kalemi=teklif.is_kalemi).update(durum='beklemede')
+        
         teklif.durum = yeni_durum
         teklif.save()
     return redirect('icmal_raporu')
@@ -153,24 +173,20 @@ def teklif_durum_guncelle(request, teklif_id, yeni_durum):
 @login_required
 def dashboard(request):
     """
-    Ana Yönetici Paneli - Yetkilendirme ve Bildirim Özellikli
+    Ana Yönetici Paneli
     """
-    # --- 1. YETKİLENDİRME KONTROLÜ ---
+    # Yetki
     kullanici_gruplari = request.user.groups.values_list('name', flat=True)
     is_yonetici = request.user.is_superuser or request.user.is_staff
-    
-    # Finansı kim görür? Yönetici, Muhasebe veya Ofis ekibi
     gorsun_finans = is_yonetici or 'MUHASEBE_FINANS' in kullanici_gruplari or 'OFIS_VE_SATINALMA' in kullanici_gruplari
-    # Şantiyeyi kim görür? Yönetici, Saha Ekibi veya Ofis ekibi
     gorsun_santiye = is_yonetici or 'SAHA_EKIBI' in kullanici_gruplari or 'OFIS_VE_SATINALMA' in kullanici_gruplari
 
-    # --- 2. TEMEL VERİLER ---
+    # Kurlar
     guncel_kurlar = tcmb_kur_getir()
     kur_usd = float(guncel_kurlar.get('USD', 1))
     kur_eur = float(guncel_kurlar.get('EUR', 1))
     kur_gbp = float(guncel_kurlar.get('GBP', 1))
 
-    # Değişkenleri varsayılan olarak boş tanımlıyoruz
     imalat_maliyeti = 0
     harcama_tutari = 0
     genel_toplam = 0
@@ -183,7 +199,6 @@ def dashboard(request):
     toplam_kalem_sayisi = 0
     dolu_kalem_sayisi = 0
     
-    # --- 3. FİNANS VERİLERİ (Sadece Yetkisi Varsa Çek) ---
     if gorsun_finans:
         imalat_kategorileri = Kategori.objects.prefetch_related('kalemler__teklifler').all()
         gider_kategorileri = GiderKategorisi.objects.prefetch_related('harcamalar').all()
@@ -234,7 +249,6 @@ def dashboard(request):
         if toplam_kalem_sayisi > 0:
             oran = int((dolu_kalem_sayisi / toplam_kalem_sayisi) * 100)
 
-    # Döviz Çevirici
     def cevir(tl_tutar):
         return {
             'usd': tl_tutar / kur_usd,
@@ -242,7 +256,7 @@ def dashboard(request):
             'gbp': tl_tutar / kur_gbp
         }
 
-    # --- 4. ŞANTİYE VERİLERİ (Sadece Yetkisi Varsa Çek) ---
+    # Şantiye Verileri
     depo_ozeti = []
     son_iadeler = []
     bekleyen_talepler = []
@@ -251,11 +265,12 @@ def dashboard(request):
     if gorsun_santiye:
         malzemeler = Malzeme.objects.all()
         for mal in malzemeler:
+            # Modeldeki 'stok' property'sini kullanıyoruz (models.py'de tanımlı)
+            mevcut_stok = mal.stok
+            
+            # Ek bilgi için yine de giriş/çıkış toplamlarını çekebiliriz
             giren = DepoHareket.objects.filter(malzeme=mal, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
             cikan = DepoHareket.objects.filter(malzeme=mal, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or 0
-            iade_iptal = DepoHareket.objects.filter(malzeme=mal, islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or 0
-            
-            mevcut_stok = giren - cikan - iade_iptal
             
             durum_renk = "success"
             if mevcut_stok <= mal.kritik_stok:
@@ -273,8 +288,6 @@ def dashboard(request):
             })
 
         son_iadeler = DepoHareket.objects.filter(islem_turu='iade').order_by('-tarih')[:5]
-        
-        # BİLDİRİM SİSTEMİ İÇİN VERİLER
         bekleyen_talepler = MalzemeTalep.objects.filter(durum='bekliyor').order_by('-oncelik', '-tarih')[:10]
         bekleyen_talep_sayisi = MalzemeTalep.objects.filter(durum='bekliyor').count()
 
@@ -282,7 +295,6 @@ def dashboard(request):
         'gorsun_finans': gorsun_finans,
         'gorsun_santiye': gorsun_santiye,
         'is_yonetici': is_yonetici,
-        
         'imalat_maliyeti': imalat_maliyeti,
         'harcama_tutari': harcama_tutari,
         'genel_toplam': genel_toplam,
@@ -299,7 +311,6 @@ def dashboard(request):
         'toplam_kalem': toplam_kalem_sayisi,
         'dolu_kalem': dolu_kalem_sayisi,
         'kurlar': guncel_kurlar,
-        
         'depo_ozeti': depo_ozeti,
         'son_iadeler': son_iadeler,
         'bekleyen_talepler': bekleyen_talepler,
@@ -310,7 +321,7 @@ def dashboard(request):
 @login_required
 def icmal_raporu(request):
     """
-    İcmal Listesi Görüntüleme
+    İcmal Listesi (Hibrit yapıya uygun olması için güncellenebilir ama şimdilik kategori bazlı çalışıyor)
     """
     kategoriler = Kategori.objects.prefetch_related('kalemler__teklifler__tedarikci').all()
     for kat in kategoriler:
@@ -337,7 +348,6 @@ def finans_ozeti(request):
     """
     Tedarikçi bazlı borç/alacak tablosu
     """
-    # GÜVENLİK: Saha Ekibi Buraya Giremez
     if not request.user.is_superuser and not request.user.groups.filter(name__in=['MUHASEBE_FINANS', 'OFIS_VE_SATINALMA']).exists():
         return redirect('dashboard')
 
@@ -377,7 +387,7 @@ def finans_ozeti(request):
 @login_required
 def tedarikci_ekstresi(request, tedarikci_id):
     """
-    Tedarikçi Hesap Hareketleri (Ekstre)
+    Tedarikçi Hesap Hareketleri (Ekstre) - HİBRİT YAPIYA GÖRE GÜNCELLENDİ
     """
     tedarikci = get_object_or_404(Tedarikci, id=tedarikci_id)
     hareketler = []
@@ -385,15 +395,28 @@ def tedarikci_ekstresi(request, tedarikci_id):
     # A. BORÇLAR (Teklifler)
     onayli_teklifler = tedarikci.teklifler.filter(durum='onaylandi')
     for t in onayli_teklifler:
-        miktar = t.is_kalemi.hedef_miktar
+        # --- MİKTAR ve İSİM BELİRLEME (HATA ÇÖZÜMÜ) ---
+        miktar = t.miktar # Artık miktar teklif modelinde
+        
+        if t.is_kalemi:
+            isim = t.is_kalemi.isim
+            birim_yazisi = t.is_kalemi.get_birim_display()
+        elif t.malzeme:
+            isim = t.malzeme.isim
+            birim_yazisi = t.malzeme.get_birim_display()
+        else:
+            isim = "Bilinmeyen Kalem"
+            birim_yazisi = "-"
+        # ---------------------------------------------
+
+        # Orijinal Döviz Tutarını Hesapla
         ham_tutar_doviz = float(t.birim_fiyat) * float(miktar)
         kdvli_tutar_doviz = ham_tutar_doviz * (1 + (t.kdv_orani / 100))
-        birim_yazisi = t.is_kalemi.get_birim_display()
         
         hareketler.append({
             'tarih': t.olusturulma_tarihi.date(), 
             'tur': 'BORÇ (Mal/Hizmet Alımı)',
-            'aciklama': f"{t.is_kalemi.isim} ({miktar:.0f} {birim_yazisi})",
+            'aciklama': f"{isim} ({miktar:.0f} {birim_yazisi})",
             'borc': t.toplam_fiyat_tl,
             'alacak': 0,
             'para_birimi': t.para_birimi, 
@@ -442,9 +465,8 @@ def tedarikci_ekstresi(request, tedarikci_id):
 @login_required
 def cek_takibi(request):
     """
-    Çek Takip Ekranı: Vadesi gelen/geçen çekleri listeler.
+    Çek Takip Ekranı
     """
-    # GÜVENLİK: Saha Ekibi Buraya Giremez
     if not request.user.is_superuser and not request.user.groups.filter(name__in=['MUHASEBE_FINANS', 'OFIS_VE_SATINALMA']).exists():
         return redirect('dashboard')
 
@@ -453,19 +475,9 @@ def cek_takibi(request):
     
     gecikmisler = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__lt=bugun)
     gelecek_30_gun = bugun + timezone.timedelta(days=30)
-    yaklasanlar = tum_cekler.filter(
-        cek_durumu='beklemede', 
-        cek_vade_tarihi__gte=bugun, 
-        cek_vade_tarihi__lte=gelecek_30_gun
-    )
-    
-    ileri_tarihliler = tum_cekler.filter(
-        cek_durumu='beklemede', 
-        cek_vade_tarihi__gt=gelecek_30_gun
-    )
-    
+    yaklasanlar = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__gte=bugun, cek_vade_tarihi__lte=gelecek_30_gun)
+    ileri_tarihliler = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__gt=gelecek_30_gun)
     odenmisler = tum_cekler.filter(cek_durumu='odendi')
-    
     toplam_risk = sum(c.tl_tutar for c in tum_cekler.filter(cek_durumu='beklemede'))
 
     context = {
@@ -478,25 +490,16 @@ def cek_takibi(request):
     }
     return render(request, 'cek_takibi.html', context)
 
-
 @login_required
 def cek_durum_degistir(request, odeme_id):
-    """
-    Çeki Ödendi/Beklemede olarak değiştirir.
-    """
     cek = get_object_or_404(Odeme, id=odeme_id)
-    
     if cek.cek_durumu == 'beklemede':
         cek.cek_durumu = 'odendi'
     else:
         cek.cek_durumu = 'beklemede'
-        
     cek.save()
     return redirect('cek_takibi')
 
 def cikis_yap(request):
-    """
-    Güvenli çıkış işlemi
-    """
     logout(request)
     return redirect('/admin/login/')
