@@ -1,10 +1,13 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
 from django.db.models import Sum
-from django.contrib.auth.decorators import login_required # Güvenlik için
-from .models import Kategori, GiderKategorisi, Teklif, Odeme, Harcama, Tedarikci
+from django.contrib.auth.decorators import login_required 
+from .models import (
+    Kategori, GiderKategorisi, Teklif, Odeme, Harcama, 
+    Tedarikci, Malzeme, DepoHareket, Hakedis, MalzemeTalep
+)
 from .utils import tcmb_kur_getir
-from django.contrib.auth import logout  # <-- BU SATIRI EKLEYİN
+from django.contrib.auth import logout
 
 # ========================================================
 # 1. YAZDIRMA VE ARA İŞLEM EKRANLARI
@@ -39,9 +42,7 @@ def belge_yazdir(request, model_name, pk):
     if model_name == 'teklif':
         obj = get_object_or_404(Teklif, pk=pk)
         baslik = "SATIN ALMA / TEKLİF FİŞİ"
-        
         bakiye = hesapla_bakiye(obj.tedarikci)
-        
         belge_data = {
             'İşlem No': f"TK-{obj.id}",
             'Tarih': timezone.now(), 
@@ -62,13 +63,10 @@ def belge_yazdir(request, model_name, pk):
         detay = f"({obj.get_odeme_turu_display()})"
         if obj.odeme_turu == 'cek':
             detay += f" - Vade: {obj.cek_vade_tarihi}"
-            
         bakiye = hesapla_bakiye(obj.tedarikci)
-        
         ilgili_is = "Genel / Mahsuben (Cari Hesaba)"
         if obj.ilgili_teklif:
             ilgili_is = f"{obj.ilgili_teklif.is_kalemi.isim} (Hakediş Ödemesi)"
-            
         belge_data = {
             'İşlem No': f"OD-{obj.id}",
             'İşlem Tarihi': obj.tarih,
@@ -95,6 +93,38 @@ def belge_yazdir(request, model_name, pk):
             'Tutar': f"{obj.tutar:,.2f} {obj.para_birimi}",
         }
 
+    # --- YENİ EKLENEN KISIM: MALZEME TALEP FORMU ---
+    elif model_name == 'malzemetalep':
+        obj = get_object_or_404(MalzemeTalep, pk=pk)
+        baslik = "MALZEME TALEP VE TAKİP FORMU"
+        
+        # Tarihçe Bilgileri (Varsa göster, yoksa bekliyor yaz)
+        talep_zamani = obj.tarih.strftime('%d.%m.%Y %H:%M')
+        onay_zamani = obj.onay_tarihi.strftime('%d.%m.%Y %H:%M') if obj.onay_tarihi else "- (Bekliyor)"
+        temin_zamani = obj.temin_tarihi.strftime('%d.%m.%Y %H:%M') if obj.temin_tarihi else "- (Bekliyor)"
+        
+        # Talep Eden Bilgisi (Kullanıcı silinmişse hata vermesin)
+        talep_eden_bilgi = "Bilinmiyor"
+        if obj.talep_eden:
+            talep_eden_bilgi = f"{obj.talep_eden.first_name} {obj.talep_eden.last_name} ({obj.talep_eden.username})"
+
+        belge_data = {
+            'Talep No': f"TLP-{obj.id:04d}",
+            'Talep Oluşturulma': talep_zamani,
+            'Talep Eden': talep_eden_bilgi,
+            '------------------': '------------------',
+            'İstenen Malzeme': obj.malzeme.isim,
+            'Miktar': f"{obj.miktar} {obj.malzeme.get_birim_display()}",
+            'Kullanılacak Yer': obj.proje_yeri,
+            'Aciliyet Durumu': obj.get_oncelik_display(),
+            'Açıklama / Not': obj.aciklama,
+            '-------------------': '------------------',
+            'DURUM': obj.get_durum_display(),
+            '🕒 Onaylanma Zamanı': onay_zamani,
+            '🚚 Temin/Teslim Zamanı': temin_zamani,
+        }
+    # -----------------------------------------------
+
     context = {
         'baslik': baslik,
         'data': belge_data,
@@ -104,7 +134,7 @@ def belge_yazdir(request, model_name, pk):
 
 
 # ========================================================
-# 2. OPERASYONEL FONKSİYONLAR (Dashboard, İcmal vb.)
+# 2. OPERASYONEL FONKSİYONLAR
 # ========================================================
 
 @login_required
@@ -113,82 +143,96 @@ def teklif_durum_guncelle(request, teklif_id, yeni_durum):
     İcmal ekranında Onayla/Reddet butonları için.
     """
     teklif = get_object_or_404(Teklif, id=teklif_id)
-    
     if yeni_durum in ['onaylandi', 'reddedildi', 'beklemede']:
         if yeni_durum == 'onaylandi':
-            # Aynı iş kalemindeki diğer teklifleri beklemede yap (Sadece biri onaylanabilir)
             Teklif.objects.filter(is_kalemi=teklif.is_kalemi).update(durum='beklemede')
-        
         teklif.durum = yeni_durum
         teklif.save()
-        
     return redirect('icmal_raporu')
 
 @login_required
 def dashboard(request):
     """
-    Ana Yönetici Paneli (Grafikler ve Özet Kartlar)
+    Ana Yönetici Paneli - Yetkilendirme ve Bildirim Özellikli
     """
+    # --- 1. YETKİLENDİRME KONTROLÜ ---
+    kullanici_gruplari = request.user.groups.values_list('name', flat=True)
+    is_yonetici = request.user.is_superuser or request.user.is_staff
+    
+    # Finansı kim görür? Yönetici, Muhasebe veya Ofis ekibi
+    gorsun_finans = is_yonetici or 'MUHASEBE_FINANS' in kullanici_gruplari or 'OFIS_VE_SATINALMA' in kullanici_gruplari
+    # Şantiyeyi kim görür? Yönetici, Saha Ekibi veya Ofis ekibi
+    gorsun_santiye = is_yonetici or 'SAHA_EKIBI' in kullanici_gruplari or 'OFIS_VE_SATINALMA' in kullanici_gruplari
+
+    # --- 2. TEMEL VERİLER ---
     guncel_kurlar = tcmb_kur_getir()
     kur_usd = float(guncel_kurlar.get('USD', 1))
     kur_eur = float(guncel_kurlar.get('EUR', 1))
     kur_gbp = float(guncel_kurlar.get('GBP', 1))
 
-    imalat_kategorileri = Kategori.objects.prefetch_related('kalemler__teklifler').all()
-    gider_kategorileri = GiderKategorisi.objects.prefetch_related('harcamalar').all()
-    tedarikciler = Tedarikci.objects.all()
-    
-    toplam_proje_maliyeti = 0   
-    toplam_harcama_tutari = 0    
+    # Değişkenleri varsayılan olarak boş tanımlıyoruz
+    imalat_maliyeti = 0
+    harcama_tutari = 0
+    genel_toplam = 0
+    kalan_borc = 0
+    oran = 0
+    imalat_labels = []
+    imalat_data = []
+    gider_labels = []
+    gider_data = []
     toplam_kalem_sayisi = 0
-    dolu_kalem_sayisi = 0 
+    dolu_kalem_sayisi = 0
     
-    imalat_etiketleri = []
-    imalat_verileri = []
-    gider_etiketleri = []
-    gider_verileri = []
+    # --- 3. FİNANS VERİLERİ (Sadece Yetkisi Varsa Çek) ---
+    if gorsun_finans:
+        imalat_kategorileri = Kategori.objects.prefetch_related('kalemler__teklifler').all()
+        gider_kategorileri = GiderKategorisi.objects.prefetch_related('harcamalar').all()
+        tedarikciler = Tedarikci.objects.all()
 
-    # İmalat Hesabı
-    for kat in imalat_kategorileri:
-        kat_toplam = 0
-        for kalem in kat.kalemler.all():
-            toplam_kalem_sayisi += 1
-            tum_teklifler = kalem.teklifler.all()
-            maliyet = 0
-            onayli = tum_teklifler.filter(durum='onaylandi').first()
-            if onayli:
-                maliyet = onayli.toplam_fiyat_tl
-                dolu_kalem_sayisi += 1
-            else:
-                bekleyenler = tum_teklifler.filter(durum='beklemede')
-                if bekleyenler.exists():
-                    maliyet = min(t.toplam_fiyat_tl for t in bekleyenler)
+        # İmalat Hesabı
+        for kat in imalat_kategorileri:
+            kat_toplam = 0
+            for kalem in kat.kalemler.all():
+                toplam_kalem_sayisi += 1
+                tum_teklifler = kalem.teklifler.all()
+                maliyet = 0
+                onayli = tum_teklifler.filter(durum='onaylandi').first()
+                if onayli:
+                    maliyet = onayli.toplam_fiyat_tl
                     dolu_kalem_sayisi += 1
-            kat_toplam += maliyet
-        if kat_toplam > 0:
-            imalat_etiketleri.append(kat.isim)
-            imalat_verileri.append(round(kat_toplam, 2))
-            toplam_proje_maliyeti += kat_toplam
+                else:
+                    bekleyenler = tum_teklifler.filter(durum='beklemede')
+                    if bekleyenler.exists():
+                        maliyet = min(t.toplam_fiyat_tl for t in bekleyenler)
+                        dolu_kalem_sayisi += 1
+                kat_toplam += maliyet
+            if kat_toplam > 0:
+                imalat_labels.append(kat.isim)
+                imalat_data.append(round(kat_toplam, 2))
+                imalat_maliyeti += kat_toplam
 
-    # Gider Hesabı
-    for gider_kat in gider_kategorileri:
-        gider_toplam = 0
-        for harcama in gider_kat.harcamalar.all():
-            gider_toplam += harcama.tl_tutar
-        if gider_toplam > 0:
-            gider_etiketleri.append(gider_kat.isim)
-            gider_verileri.append(round(gider_toplam, 2))
-            toplam_harcama_tutari += gider_toplam
+        # Gider Hesabı
+        for gider_kat in gider_kategorileri:
+            gider_toplam = 0
+            for harcama in gider_kat.harcamalar.all():
+                gider_toplam += harcama.tl_tutar
+            if gider_toplam > 0:
+                gider_labels.append(gider_kat.isim)
+                gider_data.append(round(gider_toplam, 2))
+                harcama_tutari += gider_toplam
 
-    # Borç Hesabı
-    toplam_onaylanan_borc = 0
-    toplam_odenen = 0
-    for ted in tedarikciler:
-        toplam_onaylanan_borc += sum(t.toplam_fiyat_tl for t in ted.teklifler.filter(durum='onaylandi'))
-        toplam_odenen += sum(o.tl_tutar for o in ted.odemeler.all())
-    
-    piyasaya_kalan_borc = toplam_onaylanan_borc - toplam_odenen
-    genel_toplam = toplam_proje_maliyeti + toplam_harcama_tutari
+        # Borç Hesabı
+        toplam_onaylanan_borc = 0
+        toplam_odenen = 0
+        for ted in tedarikciler:
+            toplam_onaylanan_borc += sum(t.toplam_fiyat_tl for t in ted.teklifler.filter(durum='onaylandi'))
+            toplam_odenen += sum(o.tl_tutar for o in ted.odemeler.all())
+        
+        kalan_borc = toplam_onaylanan_borc - toplam_odenen
+        genel_toplam = imalat_maliyeti + harcama_tutari
+
+        if toplam_kalem_sayisi > 0:
+            oran = int((dolu_kalem_sayisi / toplam_kalem_sayisi) * 100)
 
     # Döviz Çevirici
     def cevir(tl_tutar):
@@ -198,27 +242,68 @@ def dashboard(request):
             'gbp': tl_tutar / kur_gbp
         }
 
-    oran = 0
-    if toplam_kalem_sayisi > 0:
-        oran = int((dolu_kalem_sayisi / toplam_kalem_sayisi) * 100)
+    # --- 4. ŞANTİYE VERİLERİ (Sadece Yetkisi Varsa Çek) ---
+    depo_ozeti = []
+    son_iadeler = []
+    bekleyen_talepler = []
+    bekleyen_talep_sayisi = 0
+
+    if gorsun_santiye:
+        malzemeler = Malzeme.objects.all()
+        for mal in malzemeler:
+            giren = DepoHareket.objects.filter(malzeme=mal, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
+            cikan = DepoHareket.objects.filter(malzeme=mal, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or 0
+            iade_iptal = DepoHareket.objects.filter(malzeme=mal, islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or 0
+            
+            mevcut_stok = giren - cikan - iade_iptal
+            
+            durum_renk = "success"
+            if mevcut_stok <= mal.kritik_stok:
+                durum_renk = "danger"
+            elif mevcut_stok <= (mal.kritik_stok * 1.5):
+                durum_renk = "warning"
+
+            depo_ozeti.append({
+                'isim': mal.isim,
+                'birim': mal.get_birim_display(),
+                'giren': giren,
+                'cikan': cikan,
+                'stok': mevcut_stok,
+                'durum_renk': durum_renk
+            })
+
+        son_iadeler = DepoHareket.objects.filter(islem_turu='iade').order_by('-tarih')[:5]
+        
+        # BİLDİRİM SİSTEMİ İÇİN VERİLER
+        bekleyen_talepler = MalzemeTalep.objects.filter(durum='bekliyor').order_by('-oncelik', '-tarih')[:10]
+        bekleyen_talep_sayisi = MalzemeTalep.objects.filter(durum='bekliyor').count()
 
     context = {
-        'imalat_maliyeti': toplam_proje_maliyeti,
-        'harcama_tutari': toplam_harcama_tutari,
+        'gorsun_finans': gorsun_finans,
+        'gorsun_santiye': gorsun_santiye,
+        'is_yonetici': is_yonetici,
+        
+        'imalat_maliyeti': imalat_maliyeti,
+        'harcama_tutari': harcama_tutari,
         'genel_toplam': genel_toplam,
-        'kalan_borc': piyasaya_kalan_borc,
+        'kalan_borc': kalan_borc,
         'oran': oran,
         'doviz_genel': cevir(genel_toplam),
-        'doviz_imalat': cevir(toplam_proje_maliyeti),
-        'doviz_harcama': cevir(toplam_harcama_tutari),
-        'doviz_borc': cevir(piyasaya_kalan_borc),
-        'imalat_labels': imalat_etiketleri,
-        'imalat_data': imalat_verileri,
-        'gider_labels': gider_etiketleri,
-        'gider_data': gider_verileri,
+        'doviz_imalat': cevir(imalat_maliyeti),
+        'doviz_harcama': cevir(harcama_tutari),
+        'doviz_borc': cevir(kalan_borc),
+        'imalat_labels': imalat_labels,
+        'imalat_data': imalat_data,
+        'gider_labels': gider_labels,
+        'gider_data': gider_data,
         'toplam_kalem': toplam_kalem_sayisi,
         'dolu_kalem': dolu_kalem_sayisi,
-        'kurlar': guncel_kurlar
+        'kurlar': guncel_kurlar,
+        
+        'depo_ozeti': depo_ozeti,
+        'son_iadeler': son_iadeler,
+        'bekleyen_talepler': bekleyen_talepler,
+        'bekleyen_talep_sayisi': bekleyen_talep_sayisi
     }
     return render(request, 'dashboard.html', context)
 
@@ -252,6 +337,10 @@ def finans_ozeti(request):
     """
     Tedarikçi bazlı borç/alacak tablosu
     """
+    # GÜVENLİK: Saha Ekibi Buraya Giremez
+    if not request.user.is_superuser and not request.user.groups.filter(name__in=['MUHASEBE_FINANS', 'OFIS_VE_SATINALMA']).exists():
+        return redirect('dashboard')
+
     tedarikciler = Tedarikci.objects.all()
     finans_verisi = []
     genel_toplam_borc = 0
@@ -294,24 +383,21 @@ def tedarikci_ekstresi(request, tedarikci_id):
     hareketler = []
     
     # A. BORÇLAR (Teklifler)
-    # GÜNCELLEME: Orijinal Döviz Tutarını Hesapla ve Listeye Ekle
     onayli_teklifler = tedarikci.teklifler.filter(durum='onaylandi')
     for t in onayli_teklifler:
-        # 1. Toplam Döviz Tutarını bul (Birim Fiyat * Miktar * KDV)
         miktar = t.is_kalemi.hedef_miktar
         ham_tutar_doviz = float(t.birim_fiyat) * float(miktar)
         kdvli_tutar_doviz = ham_tutar_doviz * (1 + (t.kdv_orani / 100))
-        
         birim_yazisi = t.is_kalemi.get_birim_display()
         
         hareketler.append({
             'tarih': t.olusturulma_tarihi.date(), 
             'tur': 'BORÇ (Mal/Hizmet Alımı)',
             'aciklama': f"{t.is_kalemi.isim} ({miktar:.0f} {birim_yazisi})",
-            'borc': t.toplam_fiyat_tl, # TL Karşılığı
+            'borc': t.toplam_fiyat_tl,
             'alacak': 0,
             'para_birimi': t.para_birimi, 
-            'doviz_tutari': kdvli_tutar_doviz # Orijinal Para Tutarı
+            'doviz_tutari': kdvli_tutar_doviz
         })
         
     # B. ÖDEMELER
@@ -326,15 +412,13 @@ def tedarikci_ekstresi(request, tedarikci_id):
             'tur': f'ÖDEME ({o.get_odeme_turu_display()})',
             'aciklama': o.aciklama + ek_bilgi,
             'borc': 0,
-            'alacak': o.tl_tutar, # TL Karşılığı
+            'alacak': o.tl_tutar,
             'para_birimi': o.para_birimi,
-            'doviz_tutari': o.tutar # Orijinal Para Tutarı
+            'doviz_tutari': o.tutar
         })
     
-    # Sıralama
     hareketler.sort(key=lambda x: x['tarih'] if x['tarih'] else timezone.now().date())
 
-    # Bakiye Hesabı
     bakiye = 0
     toplam_borc = 0
     toplam_alacak = 0
@@ -355,23 +439,19 @@ def tedarikci_ekstresi(request, tedarikci_id):
     }
     return render(request, 'tedarikci_ekstre.html', context)
 
-
-# ========================================================
-# 3. ÇEK TAKİP MODÜLÜ
-# ========================================================
-
 @login_required
 def cek_takibi(request):
     """
     Çek Takip Ekranı: Vadesi gelen/geçen çekleri listeler.
     """
+    # GÜVENLİK: Saha Ekibi Buraya Giremez
+    if not request.user.is_superuser and not request.user.groups.filter(name__in=['MUHASEBE_FINANS', 'OFIS_VE_SATINALMA']).exists():
+        return redirect('dashboard')
+
     bugun = timezone.now().date()
     tum_cekler = Odeme.objects.filter(odeme_turu='cek').order_by('cek_vade_tarihi')
     
-    # 1. Vadesi Geçmiş (Riskli)
     gecikmisler = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__lt=bugun)
-    
-    # 2. Yaklaşanlar (30 Gün)
     gelecek_30_gun = bugun + timezone.timedelta(days=30)
     yaklasanlar = tum_cekler.filter(
         cek_durumu='beklemede', 
@@ -379,13 +459,11 @@ def cek_takibi(request):
         cek_vade_tarihi__lte=gelecek_30_gun
     )
     
-    # 3. İleri Tarihliler
     ileri_tarihliler = tum_cekler.filter(
         cek_durumu='beklemede', 
         cek_vade_tarihi__gt=gelecek_30_gun
     )
     
-    # 4. Ödenmişler
     odenmisler = tum_cekler.filter(cek_durumu='odendi')
     
     toplam_risk = sum(c.tl_tutar for c in tum_cekler.filter(cek_durumu='beklemede'))

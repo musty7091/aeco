@@ -6,7 +6,9 @@
     <title>Yönetici Paneli | AECO</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
         body { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
         
@@ -35,31 +37,31 @@
             color: white; transform: scale(1.02); box-shadow: 0 10px 20px rgba(30, 60, 114, 0.3);
         }
 
-        /* DÖVİZ BİLGİLENDİRME ALANI (MİNİK YAZILAR) */
+        /* DÖVİZ BİLGİLENDİRME ALANI */
         .fx-info { 
             font-size: 0.75rem; 
-            font-weight: 600; /* Daha kalın */
+            font-weight: 600; 
             margin-top: 10px; 
             padding-top: 8px;
             display: flex;
             justify-content: space-between;
         }
-        
-        /* Koyu Kartlar İçin Çizgi ve Yazı Rengi */
         .card-dark .fx-info { 
             border-top: 1px solid rgba(255,255,255,0.3); 
-            color: rgba(255,255,255,0.9); /* Neredeyse tam beyaz */
+            color: rgba(255,255,255,0.9); 
         }
-
-        /* Sarı Kart İçin Çizgi ve Yazı Rengi */
         .card-yellow .fx-info {
             border-top: 1px solid rgba(0,0,0,0.2);
-            color: #000000; /* Zifiri Siyah */
+            color: #000000; 
         }
 
-        /* Rakamların Daha Okunaklı Olması İçin */
         .stat-number { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; }
         .stat-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        /* TAB (SEKME) TASARIMI */
+        .nav-tabs .nav-link { color: #495057; font-weight: 600; border: none; border-bottom: 3px solid transparent; }
+        .nav-tabs .nav-link.active { color: #0d6efd; border-bottom: 3px solid #0d6efd; background: transparent; }
+        .nav-tabs .nav-link:hover { border-bottom: 3px solid #e9ecef; }
     </style>
 </head>
 <body>
@@ -71,13 +73,12 @@
         </a>
 
         <div class="d-flex align-items-center">
-            
             <span class="text-white me-3 d-none d-md-block">
                 <small class="text-muted">Kullanıcı:</small> 
                 <strong>{{ request.user.username|upper }}</strong>
             </span>
 
-            {% if request.user.is_staff %}
+            {% if is_yonetici %}
             <a href="/admin/" class="btn btn-outline-light btn-sm me-2">
                 <i class="fas fa-cog"></i> Yönetici Paneli
             </a>
@@ -96,7 +97,7 @@
         <div class="col-md-3">
             
             <div class="card p-3 mb-3">
-                <a href="/" class="btn sidebar-btn active">📊 Finansal Özet</a>
+                <a href="/" class="btn sidebar-btn active">📊 Ana Özet</a>
             </div>
 
             <div class="card mb-3">
@@ -129,12 +130,36 @@
             <div class="card p-3">
                 <h5 class="card-title text-secondary fw-bold mb-3 border-bottom pb-2">Hızlı İşlemler</h5>
                 
+                {% if bekleyen_talep_sayisi > 0 %}
+                <a href="/admin/core/malzemetalep/?durum__exact=bekliyor" class="btn btn-danger w-100 mb-2 py-2 fw-bold text-start animate__animated animate__pulse animate__infinite">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-bell me-2"></i> ONAY BEKLEYEN</span>
+                        <span class="badge bg-white text-danger rounded-pill">{{ bekleyen_talep_sayisi }}</span>
+                    </div>
+                </a>
+                {% else %}
+                <a href="/admin/core/malzemetalep/" class="btn btn-outline-success w-100 mb-2 py-2 fw-medium text-start">
+                     <span class="me-2">✅</span> Talepler (Temiz)
+                </a>
+                {% endif %}
+
+                {% if gorsun_finans %}
                 <a href="/admin/core/teklif/add/" class="btn btn-outline-primary w-100 mb-2 py-2 fw-medium text-start">
                     <span class="me-2">➕</span> Yeni Teklif Gir
                 </a>
                 <a href="/admin/core/harcama/add/" class="btn btn-outline-danger w-100 mb-2 py-2 fw-medium text-start">
                     <span class="me-2">🧾</span> Harcama Fişi Ekle
                 </a>
+                {% endif %}
+
+                <a href="/admin/core/malzemetalep/add/" class="btn btn-primary w-100 mb-2 py-2 fw-medium text-start shadow-sm">
+                    <span class="me-2">📢</span> Malzeme Talebi Oluştur
+                </a>
+                <a href="/admin/core/depohareket/add/" class="btn btn-outline-warning w-100 mb-2 py-2 fw-medium text-start text-dark">
+                    <span class="me-2">📦</span> Depo Giriş/Çıkış
+                </a>
+                
+                {% if gorsun_finans %}
                 <a href="/admin/core/tedarikci/add/" class="btn btn-outline-secondary w-100 mb-2 py-2 fw-medium text-start">
                     <span class="me-2">🏢</span> Tedarikçi Ekle
                 </a>
@@ -147,127 +172,278 @@
                 <a href="/icmal/" class="btn btn-icmal btn-lg w-100 py-3 shadow fw-bold text-center">
                     📋 TEKLİFLERİ İNCELE &rarr;
                 </a>
+                {% endif %}
             </div>
 
         </div>
 
         <div class="col-md-9">
             
-            <div class="row mb-4">
+            <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+                {% if gorsun_finans %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="finans-tab" data-bs-toggle="tab" data-bs-target="#finans" type="button" role="tab">📈 FİNANS & OFİS</button>
+                </li>
+                {% endif %}
                 
-                <div class="col-md-3">
-                    <div class="card stat-card card-dark bg-dark text-white p-3 h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="stat-title text-white opacity-75">GENEL TOPLAM</span>
-                            <i class="fas fa-sigma opacity-50 fs-4"></i>
-                        </div>
-                        <h4 class="stat-number mb-2 text-white">{{ genel_toplam|floatformat:0 }} ₺</h4>
-                        
-                        <div class="fx-info">
-                            <span>$ {{ doviz_genel.usd|floatformat:0 }}</span>
-                            <span>€ {{ doviz_genel.eur|floatformat:0 }}</span>
-                            <span>£ {{ doviz_genel.gbp|floatformat:0 }}</span>
-                        </div>
-                    </div>
-                </div>
+                {% if gorsun_santiye %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if not gorsun_finans %}active{% endif %}" id="santiye-tab" data-bs-toggle="tab" data-bs-target="#santiye" type="button" role="tab">🏗️ ŞANTİYE & DEPO</button>
+                </li>
+                {% endif %}
+            </ul>
 
-                <div class="col-md-3">
-                    <div class="card stat-card card-dark bg-primary text-white p-3 h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="stat-title text-white opacity-75">İNŞAAT / İMALAT</span>
-                            <i class="fas fa-hard-hat opacity-50 fs-4"></i>
-                        </div>
-                        <h4 class="stat-number mb-2 text-white">{{ imalat_maliyeti|floatformat:0 }} ₺</h4>
-
-                        <div class="fx-info">
-                            <span>$ {{ doviz_imalat.usd|floatformat:0 }}</span>
-                            <span>€ {{ doviz_imalat.eur|floatformat:0 }}</span>
-                            <span>£ {{ doviz_imalat.gbp|floatformat:0 }}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-md-3">
-                    <div class="card stat-card card-dark bg-danger text-white p-3 h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="stat-title text-white opacity-75">HARCAMALAR</span>
-                            <i class="fas fa-file-invoice opacity-50 fs-4"></i>
-                        </div>
-                        <h4 class="stat-number mb-2 text-white">{{ harcama_tutari|floatformat:0 }} ₺</h4>
-
-                        <div class="fx-info">
-                            <span>$ {{ doviz_harcama.usd|floatformat:0 }}</span>
-                            <span>€ {{ doviz_harcama.eur|floatformat:0 }}</span>
-                            <span>£ {{ doviz_harcama.gbp|floatformat:0 }}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-md-3">
-                    <div class="card stat-card card-yellow bg-warning p-3 h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="stat-title text-black text-opacity-75" style="color:#000;">KALAN BORÇ</span>
-                            <i class="fas fa-balance-scale text-black opacity-50 fs-4"></i>
-                        </div>
-                        <h4 class="stat-number mb-2" style="color: #000000;">{{ kalan_borc|floatformat:0 }} ₺</h4>
-
-                        <div class="fx-info">
-                            <span>$ {{ doviz_borc.usd|floatformat:0 }}</span>
-                            <span>€ {{ doviz_borc.eur|floatformat:0 }}</span>
-                            <span>£ {{ doviz_borc.gbp|floatformat:0 }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-8">
-                    <div class="card p-4 mb-3">
-                        <h5 class="card-title text-primary fw-bold mb-3">🏗️ İnşaat Maliyet Dağılımı</h5>
-                        <div style="height: 250px;">
-                            <canvas id="imalatChart"></canvas>
-                        </div>
-                    </div>
-
-                    <div class="card p-4">
-                        <h5 class="card-title text-danger fw-bold mb-3">🧾 Operasyonel Gider Dağılımı</h5>
-                        <div style="height: 250px;">
-                            <canvas id="giderChart"></canvas>
-                        </div>
-                    </div>
-                </div>
+            <div class="tab-content" id="myTabContent">
                 
-                <div class="col-md-4">
-                    <div class="card p-4 h-100">
-                        <h5 class="card-title text-success fw-bold mb-4">🚀 Proje Durumu</h5>
-                        
-                        <div class="text-center mb-4">
-                            <h1 class="display-3 fw-bold text-success">%{{ oran }}</h1>
-                            <span class="text-muted">Tamamlanma Oranı</span>
+                {% if gorsun_finans %}
+                <div class="tab-pane fade show active" id="finans" role="tabpanel">
+                    
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card stat-card card-dark bg-dark text-white p-3 h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="stat-title text-white opacity-75">GENEL TOPLAM</span>
+                                    <i class="fas fa-sigma opacity-50 fs-4"></i>
+                                </div>
+                                <h4 class="stat-number mb-2 text-white">{{ genel_toplam|floatformat:0 }} ₺</h4>
+                                <div class="fx-info">
+                                    <span>$ {{ doviz_genel.usd|floatformat:0 }}</span>
+                                    <span>€ {{ doviz_genel.eur|floatformat:0 }}</span>
+                                    <span>£ {{ doviz_genel.gbp|floatformat:0 }}</span>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="progress mb-3" style="height: 25px; border-radius: 12px;">
-                            <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: {{ oran }}%"></div>
+                        <div class="col-md-3">
+                            <div class="card stat-card card-dark bg-primary text-white p-3 h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="stat-title text-white opacity-75">İNŞAAT / İMALAT</span>
+                                    <i class="fas fa-hard-hat opacity-50 fs-4"></i>
+                                </div>
+                                <h4 class="stat-number mb-2 text-white">{{ imalat_maliyeti|floatformat:0 }} ₺</h4>
+                                <div class="fx-info">
+                                    <span>$ {{ doviz_imalat.usd|floatformat:0 }}</span>
+                                    <span>€ {{ doviz_imalat.eur|floatformat:0 }}</span>
+                                    <span>£ {{ doviz_imalat.gbp|floatformat:0 }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card stat-card card-dark bg-danger text-white p-3 h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="stat-title text-white opacity-75">HARCAMALAR</span>
+                                    <i class="fas fa-file-invoice opacity-50 fs-4"></i>
+                                </div>
+                                <h4 class="stat-number mb-2 text-white">{{ harcama_tutari|floatformat:0 }} ₺</h4>
+                                <div class="fx-info">
+                                    <span>$ {{ doviz_harcama.usd|floatformat:0 }}</span>
+                                    <span>€ {{ doviz_harcama.eur|floatformat:0 }}</span>
+                                    <span>£ {{ doviz_harcama.gbp|floatformat:0 }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card stat-card card-yellow bg-warning p-3 h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="stat-title text-black text-opacity-75" style="color:#000;">KALAN BORÇ</span>
+                                    <i class="fas fa-balance-scale text-black opacity-50 fs-4"></i>
+                                </div>
+                                <h4 class="stat-number mb-2" style="color: #000000;">{{ kalan_borc|floatformat:0 }} ₺</h4>
+                                <div class="fx-info">
+                                    <span>$ {{ doviz_borc.usd|floatformat:0 }}</span>
+                                    <span>€ {{ doviz_borc.eur|floatformat:0 }}</span>
+                                    <span>£ {{ doviz_borc.gbp|floatformat:0 }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="card p-4 mb-3">
+                                <h5 class="card-title text-primary fw-bold mb-3">🏗️ İnşaat Maliyet Dağılımı</h5>
+                                <div style="height: 250px;">
+                                    <canvas id="imalatChart"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="card p-4">
+                                <h5 class="card-title text-danger fw-bold mb-3">🧾 Operasyonel Gider Dağılımı</h5>
+                                <div style="height: 250px;">
+                                    <canvas id="giderChart"></canvas>
+                                </div>
+                            </div>
                         </div>
                         
-                        <hr>
-                        <div class="d-grid gap-2">
-                             <div class="d-flex justify-content-between">
-                                 <span class="text-muted">Toplam Kalem:</span>
-                                 <span class="fw-bold">{{ toplam_kalem }}</span>
-                             </div>
-                             <div class="d-flex justify-content-between">
-                                 <span class="text-muted">İşlem Gören:</span>
-                                 <span class="fw-bold text-success">{{ dolu_kalem }}</span>
-                             </div>
+                        <div class="col-md-4">
+                            <div class="card p-4 h-100">
+                                <h5 class="card-title text-success fw-bold mb-4">🚀 Proje Durumu</h5>
+                                
+                                <div class="text-center mb-4">
+                                    <h1 class="display-3 fw-bold text-success">%{{ oran }}</h1>
+                                    <span class="text-muted">Tamamlanma Oranı</span>
+                                </div>
+
+                                <div class="progress mb-3" style="height: 25px; border-radius: 12px;">
+                                    <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: {{ oran }}%"></div>
+                                </div>
+                                
+                                <hr>
+                                <div class="d-grid gap-2">
+                                     <div class="d-flex justify-content-between">
+                                         <span class="text-muted">Toplam Kalem:</span>
+                                         <span class="fw-bold">{{ toplam_kalem }}</span>
+                                     </div>
+                                     <div class="d-flex justify-content-between">
+                                         <span class="text-muted">İşlem Gören:</span>
+                                         <span class="fw-bold text-success">{{ dolu_kalem }}</span>
+                                     </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+                {% endif %}
+
+                {% if gorsun_santiye %}
+                <div class="tab-pane fade {% if not gorsun_finans %}show active{% endif %}" id="santiye" role="tabpanel">
+                    
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card border-primary border-2 shadow-sm">
+                                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0 fw-bold"><i class="fas fa-bullhorn me-2"></i> Şantiyeden Gelen Malzeme Talepleri</h5>
+                                    <a href="/admin/core/malzemetalep/add/" class="btn btn-sm btn-light text-primary fw-bold">
+                                        <i class="fas fa-plus"></i> Yeni Talep Oluştur
+                                    </a>
+                                </div>
+                                <div class="card-body p-0">
+                                    <table class="table table-hover mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Aciliyet</th>
+                                                <th>Malzeme</th>
+                                                <th>Miktar</th>
+                                                <th>Talep Eden</th>
+                                                <th>Durum</th>
+                                                <th>Tarih</th>
+                                                <th>İşlem</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for talep in bekleyen_talepler %}
+                                            <tr>
+                                                <td>
+                                                    {% if talep.oncelik == 'cok_acil' %}
+                                                        <span class="badge bg-danger animate__animated animate__flash">🔥 ÇOK ACİL</span>
+                                                    {% elif talep.oncelik == 'acil' %}
+                                                        <span class="badge bg-warning text-dark">🔴 Acil</span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary">Normal</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="fw-bold">{{ talep.malzeme.isim }}</td>
+                                                <td>{{ talep.miktar }} {{ talep.malzeme.get_birim_display }}</td>
+                                                <td><small class="text-muted"><i class="fas fa-user me-1"></i> {{ talep.talep_eden.username|default:"-" }}</small></td>
+                                                <td><span class="badge bg-info text-dark">Ofis Onayı Bekliyor</span></td>
+                                                <td>{{ talep.tarih|date:"d.m H:i" }}</td>
+                                                <td>
+                                                    <a href="/admin/core/malzemetalep/{{ talep.id }}/change/" class="btn btn-sm btn-outline-primary">
+                                                        İncele
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                            {% empty %}
+                                            <tr>
+                                                <td colspan="7" class="text-center py-4 text-muted">
+                                                    <i class="fas fa-check-circle fa-2x mb-2 text-success"></i><br>
+                                                    Bekleyen malzeme talebi yok.
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if son_iadeler %}
+                    <div class="alert alert-danger shadow-sm border-danger">
+                        <h5 class="alert-heading fw-bold"><i class="fas fa-exclamation-triangle"></i> DİKKAT: İade / Red Edilen Malzemeler Var!</h5>
+                        <ul class="mb-0 ps-3">
+                            {% for iade in son_iadeler %}
+                                <li>
+                                    <strong>{{ iade.tarih|date:"d.m.Y" }}</strong> - {{ iade.malzeme.isim }} 
+                                    ({{ iade.miktar }} {{ iade.malzeme.get_birim_display }})
+                                    - <span class="badge bg-danger">{{ iade.iade_sebebi }}</span>
+                                    {% if iade.iade_aksiyonu == 'iptal' %}
+                                        <span class="text-muted">(Siparişten Düştü)</span>
+                                    {% elif iade.iade_aksiyonu == 'degisim' %}
+                                        <span class="text-primary fw-bold">(Yenisi Bekleniyor)</span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card p-3 border-0 shadow-sm bg-light">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h4 class="mb-0 text-secondary"><i class="fas fa-cubes me-2"></i> Malzeme Stok Durumu</h4>
+                                    <div>
+                                        <a href="/admin/core/malzeme/" class="btn btn-sm btn-outline-dark me-2">Tanım Ekle</a>
+                                        <a href="/admin/core/depohareket/add/" class="btn btn-sm btn-warning">Hareket Gir</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        {% for mal in depo_ozeti %}
+                        <div class="col-md-4 col-lg-3">
+                            <div class="card h-100 border-{{ mal.durum_renk }} border-2">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted text-uppercase small fw-bold">{{ mal.isim }}</h6>
+                                    <h2 class="display-6 fw-bold my-3 text-dark">{{ mal.stok|floatformat:0 }} <small class="fs-6 text-muted">{{ mal.birim }}</small></h2>
+                                    
+                                    <div class="d-flex justify-content-between px-3 small text-muted border-top pt-2">
+                                        <span title="Toplam Giren"><i class="fas fa-arrow-down text-success"></i> {{ mal.giren|floatformat:0 }}</span>
+                                        <span title="Toplam Çıkan"><i class="fas fa-arrow-up text-danger"></i> {{ mal.cikan|floatformat:0 }}</span>
+                                    </div>
+
+                                    {% if mal.durum_renk == 'danger' %}
+                                        <div class="badge bg-danger mt-3 w-100">KRİTİK SEVİYE</div>
+                                    {% elif mal.durum_renk == 'warning' %}
+                                        <div class="badge bg-warning text-dark mt-3 w-100">AZALIYOR</div>
+                                    {% else %}
+                                        <div class="badge bg-success mt-3 w-100">STOK YETERLİ</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="col-12 text-center py-5 text-muted">
+                            <i class="fas fa-box-open fa-3x mb-3 opacity-50"></i><br>
+                            Henüz malzeme tanımı yapılmamış.
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+            </div> </div>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+{% if gorsun_finans %}
 <script>
     const commonOptions = {
         indexAxis: 'y',
@@ -328,6 +504,7 @@
         options: commonOptions
     });
 </script>
+{% endif %}
 
 </body>
 </html>

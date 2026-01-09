@@ -2,7 +2,11 @@ from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import Kategori, IsKalemi, Tedarikci, Teklif, GiderKategorisi, Harcama, Odeme
+from django.utils import timezone
+from .models import (
+    Kategori, IsKalemi, Tedarikci, Teklif, GiderKategorisi, Harcama, Odeme, 
+    Malzeme, DepoHareket, Hakedis, MalzemeTalep
+)
 from .utils import tcmb_kur_getir 
 import json
 from decimal import Decimal
@@ -134,17 +138,15 @@ class HarcamaAdmin(admin.ModelAdmin):
         return ozel_yonlendirme('harcama', obj)
 
 
-# --- ÖDEME YÖNETİMİ (GÜNCELLENDİ: AKILLI KUR EKLENDİ) ---
+# --- ÖDEME YÖNETİMİ ---
 @admin.register(Odeme)
 class OdemeAdmin(admin.ModelAdmin):
     list_display = ('tedarikci', 'tutar', 'para_birimi', 'odeme_turu', 'tarih', 'ilgili_is_goster')
     list_filter = ('odeme_turu', 'tedarikci', 'tarih')
     search_fields = ('tedarikci__firma_unvani', 'aciklama', 'cek_numarasi')
     
-    # Yeni: Kur alanı kilitli ve Akıllı Panel eklendi
     readonly_fields = ('akilli_panel', 'kur_degeri')
 
-    # Yeni: Kaydederken güncel kuru çek
     def save_model(self, request, obj, form, change):
         guncel_kurlar = tcmb_kur_getir()
         secilen_para = obj.para_birimi
@@ -164,7 +166,6 @@ class OdemeAdmin(admin.ModelAdmin):
         return "-"
     ilgili_is_goster.short_description = "İlgili Hakediş / İş"
 
-    # Yeni: Akıllı Panel Scripti (Teklif ile aynı)
     def akilli_panel(self, obj):
         try:
             kurlar = tcmb_kur_getir()
@@ -210,10 +211,10 @@ class OdemeAdmin(admin.ModelAdmin):
     fieldsets = (
         ('ÖDEME DETAYLARI', {
             'fields': (
-                'akilli_panel', # Paneli en üste koyduk
+                'akilli_panel',
                 ('tedarikci', 'tarih'),
                 'ilgili_teklif', 
-                ('tutar', 'para_birimi', 'kur_degeri'), # Kur'u buraya ekledik
+                ('tutar', 'para_birimi', 'kur_degeri'),
                 'odeme_turu',
                 'aciklama'
             )
@@ -230,3 +231,119 @@ class OdemeAdmin(admin.ModelAdmin):
             'fields': ('dekont',)
         }),
     )
+
+# --- YENİ EKLENEN ŞANTİYE & DEPO MODÜLLERİ ---
+
+@admin.register(Malzeme)
+class MalzemeAdmin(admin.ModelAdmin):
+    list_display = ('isim', 'birim', 'kritik_stok')
+    search_fields = ('isim',)
+
+@admin.register(DepoHareket)
+class DepoHareketAdmin(admin.ModelAdmin):
+    list_display = ('tarih', 'islem_turu', 'malzeme', 'miktar', 'tedarikci', 'iade_durumu_goster')
+    list_filter = ('islem_turu', 'malzeme', 'tedarikci')
+    search_fields = ('malzeme__isim', 'irsaliye_no', 'tedarikci__firma_unvani')
+    
+    def iade_durumu_goster(self, obj):
+        if obj.islem_turu == 'iade':
+            if obj.iade_aksiyonu == 'degisim':
+                return "🔄 Değişim (Yenisi Bekleniyor)"
+            elif obj.iade_aksiyonu == 'iptal':
+                return "⛔ İptal (Borçtan Düşüldü)"
+            return "⚠️ Aksiyon Bekliyor"
+        return "-"
+    iade_durumu_goster.short_description = "İade Durumu"
+
+@admin.register(Hakedis)
+class HakedisAdmin(admin.ModelAdmin):
+    list_display = ('hakedis_no', 'teklif', 'donem_baslangic', 'donem_bitis', 'tamamlanma_orani', 'odenecek_goster')
+    list_filter = ('onay_durumu', 'teklif__tedarikci')
+    
+    def odenecek_goster(self, obj):
+        return f"{obj.odenecek_net_tutar:,.2f} ₺"
+    odenecek_goster.short_description = "Net Ödenecek"
+
+# --- MALZEME TALEP YÖNETİMİ ---
+
+@admin.register(MalzemeTalep)
+class MalzemeTalepAdmin(admin.ModelAdmin):
+    list_display = ('tarih', 'malzeme', 'miktar_goster', 'oncelik_durumu', 'durum_goster', 'talep_eden', 'proje_yeri')
+    list_filter = ('durum', 'oncelik', 'malzeme')
+    search_fields = ('malzeme__isim', 'aciklama', 'proje_yeri')
+    
+    # -----------------------------------------------------------
+    # GÜNCEL: ALANLARI KİLİTLEME MANTIĞI (READ-ONLY)
+    # -----------------------------------------------------------
+    def get_readonly_fields(self, request, obj=None):
+        # 1. Standart Kilitler: Talep Eden ve Tarihçeler ELLE DEĞİŞTİRİLEMEZ (Sistem atar)
+        readonly_fields = ['talep_eden', 'onay_tarihi', 'temin_tarihi']
+        
+        # Kullanıcı SAHA_EKIBI grubunda mı?
+        is_saha_ekibi = request.user.groups.filter(name='SAHA_EKIBI').exists()
+        
+        # SENARYO 1: Yeni kayıt oluşturuluyor
+        if obj is None:
+            # Yeni kayıtta DURUM değiştirilemesin (Otomatik 'Bekliyor' başlasın)
+            readonly_fields.append('durum')
+            
+        # SENARYO 2: Saha Ekibi düzenleme yapıyor
+        elif is_saha_ekibi:
+            # Saha ekibi durumu sonradan değiştiremez (Sadece Ofis onaylar)
+            readonly_fields.append('durum')
+            
+        return readonly_fields
+    # -----------------------------------------------------------
+
+    def save_model(self, request, obj, form, change):
+        # 1. İlk Kayıt: Talep Edeni Ata
+        if not obj.pk: 
+            obj.talep_eden = request.user
+        
+        # 2. Durum Değişikliği Kontrolü (Timeline)
+        if change: # Eğer kayıt güncelleniyorsa
+            try:
+                eski_kayit = MalzemeTalep.objects.get(pk=obj.pk)
+                
+                # Durum 'Bekliyor' -> 'Onaylandı' olduysa saati bas
+                if eski_kayit.durum != 'onaylandi' and obj.durum == 'onaylandi':
+                    obj.onay_tarihi = timezone.now()
+                
+                # Durum -> 'Tamamlandı' olduysa saati bas
+                if eski_kayit.durum != 'tamamlandi' and obj.durum == 'tamamlandi':
+                    obj.temin_tarihi = timezone.now()
+            except MalzemeTalep.DoesNotExist:
+                pass
+
+        super().save_model(request, obj, form, change)
+
+    # --- Kaydettikten Sonra Fiş Yazdırma Ekranına Git ---
+    def response_change(self, request, obj):
+        if "_continue" in request.POST:
+            return super().response_change(request, obj)
+        return redirect('islem_sonuc', model_name='malzemetalep', pk=obj.pk)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if "_continue" in request.POST:
+            return super().response_add(request, obj, post_url_continue)
+        return redirect('islem_sonuc', model_name='malzemetalep', pk=obj.pk)
+    # ----------------------------------------------------
+
+    def miktar_goster(self, obj):
+        return f"{obj.miktar} {obj.malzeme.get_birim_display()}"
+    miktar_goster.short_description = "Miktar"
+
+    def oncelik_durumu(self, obj):
+        renk = "black"
+        if obj.oncelik == 'acil': renk = "orange"
+        if obj.oncelik == 'cok_acil': renk = "red"
+        return mark_safe(f'<span style="color:{renk}; font-weight:bold;">{obj.get_oncelik_display()}</span>')
+    oncelik_durumu.short_description = "Aciliyet"
+
+    def durum_goster(self, obj):
+        ikon = "⏳"
+        if obj.durum == 'onaylandi': ikon = "✅"
+        if obj.durum == 'tamamlandi': ikon = "📦"
+        if obj.durum == 'red': ikon = "❌"
+        return f"{ikon} {obj.get_durum_display()}"
+    durum_goster.short_description = "Durum"

@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from decimal import Decimal
 
 # ==========================================
 # 1. KATEGORİ VE İMALAT YAPISI
@@ -12,7 +13,6 @@ class Kategori(models.Model):
         return self.isim
     
     class Meta:
-        # "1. İmalat Kategorileri" yerine daha kısa:
         verbose_name_plural = "1. İmalat Türleri"
 
 class IsKalemi(models.Model):
@@ -47,7 +47,6 @@ class Tedarikci(models.Model):
         return self.firma_unvani
     
     class Meta:
-        # "Tedarikçiler / Taşeronlar" yerine sadece:
         verbose_name_plural = "Tedarikçiler"
 
 # ==========================================
@@ -96,7 +95,6 @@ class Teklif(models.Model):
         return f"{self.tedarikci} - {self.is_kalemi.isim}"
     
     class Meta:
-        # "3. Teklifler (İcmal)" sığıyor, sorun yok.
         verbose_name_plural = "3. Teklifler (İcmal)"
 
 # ==========================================
@@ -110,7 +108,6 @@ class GiderKategorisi(models.Model):
         return self.isim
     
     class Meta:
-        # "Gider Kategorileri (OPEX)" yerine:
         verbose_name_plural = "Gider Tanımları"
 
 class Harcama(models.Model):
@@ -131,11 +128,10 @@ class Harcama(models.Model):
         return f"{self.aciklama} - {self.tutar}"
     
     class Meta:
-        # "4. Gider / Harcama Fişleri" yerine daha kısa:
         verbose_name_plural = "4. Harcamalar"
 
 # ==========================================
-# 5. ÖDEMELER (GÜNCELLENEN KISIM)
+# 5. ÖDEMELER
 # ==========================================
 
 class Odeme(models.Model):
@@ -144,14 +140,11 @@ class Odeme(models.Model):
         ('cek', 'Çek'),
         ('kk', 'Kredi Kartı'),
     ]
-    
-    # YENİ: ÇEK DURUMLARI
     CEK_DURUMLARI = [
         ('beklemede', '⏳ Vadesi Bekleniyor'),
         ('odendi', '✅ Ödendi / Tahsil Edildi'),
         ('karsiliksiz', '❌ Karşılıksız / İptal'),
     ]
-
     PARA_BIRIMLERI = [('TRY', 'TL'), ('USD', 'USD'), ('EUR', 'EUR'), ('GBP', 'GBP')]
     
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.CASCADE, related_name='odemeler')
@@ -171,7 +164,6 @@ class Odeme(models.Model):
     
     odeme_turu = models.CharField(max_length=10, choices=ODEME_TURLERI, default='nakit')
     
-    # YENİ EKLENEN ALAN: Çek Durumu
     cek_durumu = models.CharField(
         max_length=20, 
         choices=CEK_DURUMLARI, 
@@ -182,13 +174,11 @@ class Odeme(models.Model):
     
     aciklama = models.CharField(max_length=200, blank=True)
     
-    # Çek Bilgileri
     cek_vade_tarihi = models.DateField(blank=True, null=True, verbose_name="Çek Vade Tarihi")
     cek_numarasi = models.CharField(max_length=50, blank=True, verbose_name="Çek No")
     cek_banka = models.CharField(max_length=100, blank=True, verbose_name="Banka Adı")
     cek_sube = models.CharField(max_length=100, blank=True, verbose_name="Şube")
     cek_gorseli = models.ImageField(upload_to='cekler/', blank=True, null=True)
-    
     dekont = models.FileField(upload_to='odemeler/', blank=True, null=True)
 
     @property
@@ -200,3 +190,139 @@ class Odeme(models.Model):
 
     class Meta:
         verbose_name_plural = "5. Ödemeler"
+
+
+# ==========================================
+# 6. ŞANTİYE & MALZEME YÖNETİMİ (YENİ MODÜL)
+# ==========================================
+
+class Malzeme(models.Model):
+    isim = models.CharField(max_length=200, verbose_name="Malzeme Adı (Örn: Ø14 Demir)")
+    birim = models.CharField(max_length=20, choices=IsKalemi.BIRIMLER, default='adet')
+    kritik_stok = models.FloatField(default=10, verbose_name="Kritik Stok Uyarı Limiti")
+    
+    def __str__(self):
+        return self.isim
+    
+    class Meta:
+        verbose_name_plural = "Malzeme Tanımları"
+
+class DepoHareket(models.Model):
+    ISLEM_TURLERI = [
+        ('giris', '📥 Depo Girişi (Satınalma)'),
+        ('cikis', '📤 Depo Çıkışı (Kullanım)'),
+        ('iade', '↩️ İade / Red (Kusurlu Mal)'),
+    ]
+    
+    IADE_AKSIYONLARI = [
+        ('yok', '-'),
+        ('degisim', '🔄 Yenisi Gelecek (Borç Düşme)'),
+        ('iptal', '⛔ İptal Et / Faturadan Düş (Borç Düş)'),
+    ]
+
+    malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='hareketler')
+    tarih = models.DateField(default=timezone.now)
+    islem_turu = models.CharField(max_length=10, choices=ISLEM_TURLERI)
+    miktar = models.FloatField(verbose_name="Miktar")
+    
+    tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
+    irsaliye_no = models.CharField(max_length=50, blank=True, verbose_name="İrsaliye No")
+    aciklama = models.CharField(max_length=300, blank=True, verbose_name="Açıklama / Kullanılan Yer")
+    
+    # İade Mantığı
+    iade_sebebi = models.CharField(max_length=200, blank=True, verbose_name="Red Sebebi")
+    iade_aksiyonu = models.CharField(max_length=20, choices=IADE_AKSIYONLARI, default='yok', verbose_name="İade Sonucu")
+    kanit_gorseli = models.ImageField(upload_to='depo_kanit/', blank=True, null=True, verbose_name="Hasar/Kanıt Fotoğrafı")
+
+    def save(self, *args, **kwargs):
+        # Eğer çıkış yapılıyorsa miktarı negatif kaydetmek yerine pozitif tutuyoruz,
+        # hesaplarken işlem türüne bakacağız.
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.get_islem_turu_display()} - {self.malzeme.isim}"
+
+    class Meta:
+        verbose_name_plural = "Depo: Giriş/Çıkış"
+
+
+# ==========================================
+# 7. TAŞERON HAKEDİŞ YÖNETİMİ (YENİ MODÜL)
+# ==========================================
+
+class Hakedis(models.Model):
+    """
+    Onaylanmış bir Teklif (Sözleşme) üzerinden ilerler.
+    """
+    teklif = models.ForeignKey(Teklif, on_delete=models.CASCADE, related_name='hakedisler', limit_choices_to={'durum': 'onaylandi'})
+    hakedis_no = models.PositiveIntegerField(default=1, verbose_name="Hakediş No")
+    tarih = models.DateField(default=timezone.now)
+    
+    donem_baslangic = models.DateField(verbose_name="Dönem Başı")
+    donem_bitis = models.DateField(verbose_name="Dönem Sonu")
+    
+    tamamlanma_orani = models.FloatField(verbose_name="Bu Dönem Tamamlanma (%)", help_text="Örn: 10 girerseniz işin %10'u bitmiş sayılır.")
+    
+    # Kesintiler
+    malzeme_zayiati = models.FloatField(default=0, verbose_name="Malzeme / Zayiat Kesintisi (TL)")
+    diger_kesintiler = models.FloatField(default=0, verbose_name="Diğer Kesintiler (Avans/Stopaj vb.)")
+    
+    onay_durumu = models.BooleanField(default=False, verbose_name="Hakediş Onaylandı mı?")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def hakedis_tutari(self):
+        # Sözleşme Tutarı * (Tamamlanma Oranı / 100)
+        sozlesme_tutari = self.teklif.toplam_fiyat_tl
+        return sozlesme_tutari * (self.tamamlanma_orani / 100)
+
+    @property
+    def odenecek_net_tutar(self):
+        return self.hakedis_tutari - (self.malzeme_zayiati + self.diger_kesintiler)
+
+    def __str__(self):
+        return f"{self.teklif.tedarikci} - Hakediş #{self.hakedis_no}"
+
+    class Meta:
+        verbose_name_plural = "Taşeron Hakedişleri"
+
+    # ==========================================
+# 8. MALZEME TALEP FORMU (YENİ EKLEME)
+# ==========================================
+
+class MalzemeTalep(models.Model):
+    ONCELIKLER = [
+        ('normal', '🟢 Normal'),
+        ('acil', '🔴 Acil'),
+        ('cok_acil', '🔥 ÇOK ACİL (İş Durdu)'),
+    ]
+    
+    DURUMLAR = [
+        ('bekliyor', '⏳ Onay Bekliyor'),
+        ('onaylandi', '✅ Onaylandı (Satınalmada)'),
+        ('tamamlandi', '📦 Temin Edildi / Geldi'),
+        ('red', '❌ Reddedildi'),
+    ]
+
+    talep_eden = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Talep Eden Mühendis")
+    malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='talepler')
+    miktar = models.FloatField(verbose_name="İstenen Miktar")
+    oncelik = models.CharField(max_length=10, choices=ONCELIKLER, default='normal', verbose_name="Aciliyet Durumu")
+    
+    proje_yeri = models.CharField(max_length=200, blank=True, verbose_name="Kullanılacak Yer (Örn: C Blok Zemin)")
+    aciklama = models.TextField(blank=True, verbose_name="Notlar")
+    
+    durum = models.CharField(max_length=20, choices=DURUMLAR, default='bekliyor')
+    tarih = models.DateTimeField(default=timezone.now, verbose_name="Talep Tarihi")
+
+    # --- YENİ EKLENEN TARİHÇE ALANLARI ---
+    onay_tarihi = models.DateTimeField(null=True, blank=True, verbose_name="Onaylanma Zamanı")
+    temin_tarihi = models.DateTimeField(null=True, blank=True, verbose_name="Temin/Teslim Zamanı")
+
+    def __str__(self):
+        return f"{self.malzeme.isim} - {self.miktar} ({self.get_oncelik_display()})"
+
+    class Meta:
+        verbose_name_plural = "Malzeme Talepleri"
+        ordering = ['-tarih']
