@@ -90,6 +90,18 @@ class Teklif(models.Model):
         tutar_tl = float(self.birim_fiyat) * float(self.kur_degeri) * miktar
         kdvli_tutar = tutar_tl * (1 + (self.kdv_orani / 100))
         return kdvli_tutar
+    
+    @property
+    def toplam_fiyat_orijinal(self):
+        """
+        Döviz kurunu hesaba katmadan, teklifin kendi para birimindeki toplam tutarı.
+        """
+        miktar = self.is_kalemi.hedef_miktar
+        # Sadece Birim Fiyat * Miktar (Kur çarpımı YOK)
+        ham_tutar = float(self.birim_fiyat) * float(miktar)
+        # KDV Ekle
+        kdvli_tutar = ham_tutar * (1 + (self.kdv_orani / 100))
+        return kdvli_tutar
 
     def __str__(self):
         return f"{self.tedarikci} - {self.is_kalemi.isim}"

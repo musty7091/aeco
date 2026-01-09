@@ -37,10 +37,11 @@ def ozel_yonlendirme(model_name, obj):
     return redirect('islem_sonuc', model_name=model_name, pk=obj.pk)
 
 
-# --- TEKLİF YÖNETİMİ ---
+# --- TEKLİF YÖNETİMİ (GÜNCELLENDİ) ---
 @admin.register(Teklif)
 class TeklifAdmin(admin.ModelAdmin):
-    list_display = ('is_kalemi', 'tedarikci', 'birim_fiyat_goster', 'kdv_orani_goster', 'toplam_fiyat_tl_goster', 'durum')
+    # GÜNCELLEME: 'toplam_fiyat_tl_goster' yerine 'toplam_fiyat_orijinal_goster' kullandık.
+    list_display = ('is_kalemi', 'tedarikci', 'birim_fiyat_goster', 'kdv_orani_goster', 'toplam_fiyat_orijinal_goster', 'durum')
     list_filter = ('durum', 'tedarikci', 'is_kalemi__kategori')
     list_editable = ('durum',)
     search_fields = ('is_kalemi__isim', 'tedarikci__firma_unvani')
@@ -119,6 +120,13 @@ class TeklifAdmin(admin.ModelAdmin):
     def birim_fiyat_goster(self, obj): return f"{obj.birim_fiyat:,.2f} {obj.para_birimi}"
     def kdv_orani_goster(self, obj): return f"%{obj.kdv_orani}"
     def toplam_fiyat_tl_goster(self, obj): return f"{obj.toplam_fiyat_tl:,.2f} ₺"
+
+    # --- YENİ EKLENEN PARA BİRİMİ GÖSTERİMİ ---
+    def toplam_fiyat_orijinal_goster(self, obj):
+        # Bu fonksiyonun çalışması için models.py içinde 'toplam_fiyat_orijinal' property'si olmalıdır.
+        return f"{obj.toplam_fiyat_orijinal:,.2f} {obj.para_birimi}"
+    
+    toplam_fiyat_orijinal_goster.short_description = "Toplam Tutar (Orijinal)"
 
 
 # --- GİDER YÖNETİMİ ---
