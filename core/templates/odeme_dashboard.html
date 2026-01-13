@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Hakediş ve Ödeme Yönetimi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style> body { background: #f0f2f5; padding: 20px; } </style>
+</head>
+<body>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-money-check-alt me-2 text-danger"></i> HAKEDİŞ & ÖDEME MERKEZİ</h2>
+    <a href="/" class="btn btn-secondary">← Ana Menü</a>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-danger text-white fw-bold">
+                <i class="fas fa-exclamation-circle me-2"></i> VADESİ GELEN ÇEKLER
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Vade</th>
+                            <th>Firma</th>
+                            <th>Tutar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cek in yaklasanlar %}
+                        <tr>
+                            <td class="fw-bold text-danger">{{ cek.cek_vade_tarihi|date:"d.m" }}</td>
+                            <td>{{ cek.tedarikci.firma_unvani }}</td>
+                            <td class="fw-bold">{{ cek.tutar|floatformat:2 }} {{ cek.para_birimi }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="3" class="text-center text-muted py-3">Yaklaşan çek ödemesi yok.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer text-center">
+                <a href="{% url 'cek_takibi' %}" class="btn btn-outline-danger w-100">Tüm Çek Listesini Gör &rarr;</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-dark text-white fw-bold">
+                <i class="fas fa-file-contract me-2"></i> SON HAKEDİŞLER
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Tarih</th>
+                            <th>Hakediş No</th>
+                            <th>İş / Firma</th>
+                            <th class="text-end">Tutar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for hak in son_hakedisler %}
+                        <tr>
+                            <td>{{ hak.tarih|date:"d.m" }}</td>
+                            <td>#{{ hak.hakedis_no }}</td>
+                            <td>{{ hak.teklif.tedarikci.firma_unvani|truncatechars:15 }}</td>
+                            <td class="text-end fw-bold">{{ hak.odenecek_net_tutar|floatformat:0 }} ₺</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-3">Kayıtlı hakediş yok.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer text-center">
+                <a href="/admin/core/hakedis/" class="btn btn-outline-dark w-100">Hakediş Yönetimine Git &rarr;</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

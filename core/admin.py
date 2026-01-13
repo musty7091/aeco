@@ -3,12 +3,13 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils import timezone
-from django.db.models import Sum # Stok hesabı için
+from django.db.models import Sum
 from .models import (
-    Kategori, IsKalemi, Tedarikci, Teklif, GiderKategorisi, Harcama, Odeme, 
-    Malzeme, DepoHareket, Hakedis, MalzemeTalep
+    Kategori, IsKalemi, Tedarikci, Teklif, SatinAlma, GiderKategorisi, Harcama, Odeme, 
+    Malzeme, DepoHareket, Hakedis, MalzemeTalep, Depo, DepoTransfer
 )
 from .utils import tcmb_kur_getir 
+from .forms import DepoTransferForm 
 import json
 from decimal import Decimal
 
@@ -37,23 +38,61 @@ class TedarikciAdmin(admin.ModelAdmin):
 def ozel_yonlendirme(model_name, obj):
     return redirect('islem_sonuc', model_name=model_name, pk=obj.pk)
 
+# --- DEPO YÖNETİMİ ---
 
-# --- TEKLİF YÖNETİMİ (HİBRİT YAPI & KİLİTLEME EKLENDİ) ---
+@admin.register(Depo)
+class DepoAdmin(admin.ModelAdmin):
+    list_display = ('isim', 'adres', 'is_sanal_goster')
+    search_fields = ('isim',) 
+    
+    def is_sanal_goster(self, obj):
+        return "🌐 Sanal (Tedarikçi)" if obj.is_sanal else "🏭 Fiziksel Depo"
+    is_sanal_goster.short_description = "Depo Türü"
+
+@admin.register(DepoTransfer)
+class DepoTransferAdmin(admin.ModelAdmin):
+    form = DepoTransferForm
+    list_display = ('tarih', 'malzeme', 'miktar', 'kaynak_depo', 'hedef_depo')
+    list_filter = ('kaynak_depo', 'hedef_depo', 'malzeme')
+    
+    # --- DEĞİŞİKLİK BURADA ---
+    # autocomplete_fields = ['malzeme']  <-- Bu satırı sildik veya yorum satırı yaptık.
+    # Artık malzemeler arama kutusu olarak değil, normal liste olarak gelecek.
+    
+    # Performans için listeyi hızlı yükle:
+    list_select_related = ('malzeme', 'kaynak_depo', 'hedef_depo') 
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+
+
+# --- TEKLİF YÖNETİMİ (SADECE FİYAT TOPLAMA) ---
 @admin.register(Teklif)
 class TeklifAdmin(admin.ModelAdmin):
-    list_display = ('kalem_veya_malzeme', 'tedarikci', 'miktar', 'birim_fiyat_goster', 'toplam_fiyat_orijinal_goster', 'durum')
+    # DÜZELTME: teslimat_durumu buradan kaldırıldı çünkü artık SatinAlma'da
+    list_display = ('kalem_veya_malzeme', 'tedarikci', 'miktar', 'birim_fiyat_goster', 'durum')
     list_filter = ('durum', 'tedarikci', 'is_kalemi__kategori')
-    list_editable = ('durum',)
+    list_editable = ('durum',) 
     search_fields = ('is_kalemi__isim', 'malzeme__isim', 'tedarikci__firma_unvani')
     
     readonly_fields = ('akilli_panel', 'kur_degeri', 'birim_fiyat_kdvli_goster') 
 
     def save_model(self, request, obj, form, change):
+        # 1. Kur Güncelleme
         guncel_kurlar = tcmb_kur_getir()
         secilen_para = obj.para_birimi
         yeni_kur = guncel_kurlar.get(secilen_para, 1.0)
         obj.kur_degeri = Decimal(yeni_kur)
+        
         super().save_model(request, obj, form, change)
+
+        # 2. OTOMASYON: Teklif "Onaylandı" ise otomatik SATINALMA oluştur
+        if obj.durum == 'onaylandi':
+            if not hasattr(obj, 'satinalma_donusumu'):
+                SatinAlma.objects.create(
+                    teklif=obj,
+                    notlar="Teklif onaylandı, otomatik oluşturuldu."
+                )
 
     def response_add(self, request, obj, post_url_continue=None):
         return ozel_yonlendirme('teklif', obj)
@@ -75,8 +114,9 @@ class TeklifAdmin(admin.ModelAdmin):
             <div style="display:flex; align-items:center;">
                 <div style="font-size: 24px; margin-right: 15px;">ℹ️</div>
                 <div>
-                    <b>OTOMATİK KUR SİSTEMİ:</b><br>
-                    Seçtiğiniz para birimine göre güncel kur <b>arka planda otomatik</b> işlenecektir.
+                    <b>BİLGİLENDİRME:</b><br>
+                    Teklifi <b>"Onaylandı"</b> durumuna getirdiğinizde otomatik olarak <b>Satınalma</b> menüsünde sipariş kaydı oluşacaktır.
+                    Teslimat takibi oradan yapılacaktır.
                 </div>
             </div>
         </div>
@@ -87,7 +127,6 @@ class TeklifAdmin(admin.ModelAdmin):
                 const paraSelect = document.getElementById('id_para_birimi');
                 const kurInput = document.querySelector('.field-kur_degeri .readonly'); 
 
-                // 1. KUR GÜNCELLEME SCRIPTİ
                 if (paraSelect && kurInput) {{
                     paraSelect.addEventListener('change', function() {{
                         const secilen = this.value;
@@ -99,46 +138,34 @@ class TeklifAdmin(admin.ModelAdmin):
                     }});
                 }}
 
-                // 2. İŞ KALEMİ / MALZEME KİLİTLEME (YENİ EKLENEN KISIM)
-                // Django admin ID'leri: id_is_kalemi, id_malzeme
                 const isKalemiSelect = document.getElementById('id_is_kalemi');
                 const malzemeSelect = document.getElementById('id_malzeme');
 
                 function toggleFields() {{
                     if (!isKalemiSelect || !malzemeSelect) return;
-
                     const isKalemiVal = isKalemiSelect.value;
                     const malzemeVal = malzemeSelect.value;
 
-                    // İş Kalemi seçiliyse, Malzeme'yi kilitle
                     if (isKalemiVal) {{
                         malzemeSelect.disabled = true;
-                        malzemeSelect.style.backgroundColor = '#e9ecef'; // Gri renk
-                        malzemeSelect.style.cursor = 'not-allowed';
+                        malzemeSelect.style.backgroundColor = '#e9ecef';
                     }} else {{
                         malzemeSelect.disabled = false;
                         malzemeSelect.style.backgroundColor = '';
-                        malzemeSelect.style.cursor = 'default';
                     }}
 
-                    // Malzeme seçiliyse, İş Kalemi'ni kilitle
                     if (malzemeVal) {{
                         isKalemiSelect.disabled = true;
                         isKalemiSelect.style.backgroundColor = '#e9ecef';
-                        isKalemiSelect.style.cursor = 'not-allowed';
                     }} else {{
                         isKalemiSelect.disabled = false;
                         isKalemiSelect.style.backgroundColor = '';
-                        isKalemiSelect.style.cursor = 'default';
                     }}
                 }}
 
                 if (isKalemiSelect && malzemeSelect) {{
-                    // Olay dinleyicileri ekle
                     isKalemiSelect.addEventListener('change', toggleFields);
                     malzemeSelect.addEventListener('change', toggleFields);
-                    
-                    // Sayfa açıldığında durumu kontrol et (Edit durumu için)
                     toggleFields();
                 }}
             }});
@@ -148,6 +175,7 @@ class TeklifAdmin(admin.ModelAdmin):
 
     akilli_panel.short_description = "Otomatik İşlemler"
 
+    # DÜZELTME: teslimat_durumu buradan kaldırıldı
     fieldsets = (
         ('TEKLİF GİRİŞ FORMU', {
             'fields': (
@@ -173,19 +201,31 @@ class TeklifAdmin(admin.ModelAdmin):
         return "-"
     kalem_veya_malzeme.short_description = "Hizmet / Malzeme"
 
-    def birim_fiyat_goster(self, obj): return f"{obj.birim_fiyat:,.2f} {obj.para_birimi}"
-    def kdv_orani_goster(self, obj): return f"%{obj.kdv_orani}"
-    
-    def toplam_fiyat_orijinal_goster(self, obj):
-        return f"{obj.toplam_fiyat_orijinal:,.2f} {obj.para_birimi}"
-    toplam_fiyat_orijinal_goster.short_description = "Toplam Tutar (Orijinal)"
+    def birim_fiyat_goster(self, obj):
+        return f"{obj.birim_fiyat:,.2f} {obj.para_birimi}"
 
     def birim_fiyat_kdvli_goster(self, obj):
         if obj.pk:
-            kdvli_fiyat = float(obj.birim_fiyat) * (1 + (obj.kdv_orani / 100))
-            return mark_safe(f'<b style="color:#27ae60; font-size:1.1em;">{kdvli_fiyat:,.2f} {obj.para_birimi}</b> (KDV Dahil)')
+            return mark_safe(f'<b style="color:#27ae60; font-size:1.1em;">{obj.birim_fiyat_kdvli:,.2f} {obj.para_birimi}</b> (KDV Dahil)')
         return "-"
     birim_fiyat_kdvli_goster.short_description = "Birim Fiyat (KDV DAHİL)"
+
+
+# --- SATINALMA YÖNETİMİ (YENİ EKLENEN MODEL) ---
+@admin.register(SatinAlma)
+class SatinAlmaAdmin(admin.ModelAdmin):
+    # Teslimat Durumu artık burada yönetiliyor
+    list_display = ('teklif_ozeti', 'fatura_no', 'teslimat_durumu', 'toplam_tutar_goster')
+    list_filter = ('teslimat_durumu',)
+    search_fields = ('teklif__tedarikci__firma_unvani', 'fatura_no')
+    
+    def teklif_ozeti(self, obj):
+        return str(obj.teklif)
+    teklif_ozeti.short_description = "Tedarikçi ve Malzeme"
+    
+    def toplam_tutar_goster(self, obj):
+        return f"{obj.teklif.toplam_fiyat_tl:,.2f} TL"
+    toplam_tutar_goster.short_description = "Toplam Tutar"
 
 
 # --- GİDER YÖNETİMİ ---
@@ -228,10 +268,10 @@ class OdemeAdmin(admin.ModelAdmin):
         return ozel_yonlendirme('odeme', obj)
 
     def ilgili_is_goster(self, obj):
-        if obj.ilgili_teklif:
-            return str(obj.ilgili_teklif)
-        return "-"
-    ilgili_is_goster.short_description = "İlgili Hakediş / İş"
+        if obj.ilgili_satinalma:
+            return str(obj.ilgili_satinalma)
+        return "Genel/Cari Ödeme"
+    ilgili_is_goster.short_description = "İlgili Satınalma / Fatura"
 
     def akilli_panel(self, obj):
         try:
@@ -280,7 +320,7 @@ class OdemeAdmin(admin.ModelAdmin):
             'fields': (
                 'akilli_panel',
                 ('tedarikci', 'tarih'),
-                'ilgili_teklif', 
+                'ilgili_satinalma', 
                 ('tutar', 'para_birimi', 'kur_degeri'),
                 'odeme_turu',
                 'aciklama'
@@ -303,7 +343,7 @@ class OdemeAdmin(admin.ModelAdmin):
 
 @admin.register(Malzeme)
 class MalzemeAdmin(admin.ModelAdmin):
-    list_display = ('isim', 'birim', 'kritik_stok', 'anlik_stok_durumu')
+    list_display = ('isim', 'birim', 'kritik_stok', 'anlik_stok_durumu', 'fiziksel_stok_goster', 'sanal_stok_goster', 'toplam_stok_goster')
     search_fields = ('isim',)
 
     def anlik_stok_durumu(self, obj):
@@ -314,14 +354,34 @@ class MalzemeAdmin(admin.ModelAdmin):
             return mark_safe(f'<span style="color:orange; font-weight:bold;">{stok} (Azalıyor)</span>')
         else:
             return mark_safe(f'<span style="color:green;">{stok}</span>')
-    
-    anlik_stok_durumu.short_description = "Anlık Stok"
+    anlik_stok_durumu.short_description = "Durum"
+
+    def fiziksel_stok_goster(self, obj):
+        giren = obj.hareketler.filter(depo__is_sanal=False, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        cikan = obj.hareketler.filter(depo__is_sanal=False, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        iade_iptal = obj.hareketler.filter(depo__is_sanal=False, islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        stok = giren - cikan - iade_iptal
+        return mark_safe(f'<b style="color:green;">{stok} {obj.get_birim_display()}</b>')
+    fiziksel_stok_goster.short_description = "🏭 Merkez"
+
+    def sanal_stok_goster(self, obj):
+        giren = obj.hareketler.filter(depo__is_sanal=True, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        cikan = obj.hareketler.filter(depo__is_sanal=True, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        iade_iptal = obj.hareketler.filter(depo__is_sanal=True, islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        stok = giren - cikan - iade_iptal
+        return mark_safe(f'<b style="color:#2980b9;">{stok} {obj.get_birim_display()}</b>')
+    sanal_stok_goster.short_description = "🌐 Tedarikçide"
+
+    def toplam_stok_goster(self, obj):
+        return f"{obj.stok} {obj.get_birim_display()}"
+    toplam_stok_goster.short_description = "Σ Toplam"
 
 @admin.register(DepoHareket)
 class DepoHareketAdmin(admin.ModelAdmin):
-    list_display = ('tarih', 'islem_turu', 'malzeme', 'miktar', 'tedarikci', 'iade_durumu_goster')
-    list_filter = ('islem_turu', 'malzeme', 'tedarikci')
+    list_display = ('tarih', 'islem_turu', 'depo', 'malzeme', 'miktar', 'tedarikci', 'iade_durumu_goster')
+    list_filter = ('islem_turu', 'depo', 'malzeme', 'tedarikci')
     search_fields = ('malzeme__isim', 'irsaliye_no', 'tedarikci__firma_unvani')
+    autocomplete_fields = ['malzeme', 'tedarikci', 'depo']
     
     def iade_durumu_goster(self, obj):
         if obj.islem_turu == 'iade':
@@ -335,8 +395,8 @@ class DepoHareketAdmin(admin.ModelAdmin):
 
 @admin.register(Hakedis)
 class HakedisAdmin(admin.ModelAdmin):
-    list_display = ('hakedis_no', 'teklif', 'donem_baslangic', 'donem_bitis', 'tamamlanma_orani', 'odenecek_goster')
-    list_filter = ('onay_durumu', 'teklif__tedarikci')
+    list_display = ('hakedis_no', 'satinalma', 'donem_baslangic', 'donem_bitis', 'tamamlanma_orani', 'odenecek_goster')
+    list_filter = ('onay_durumu', 'satinalma__teklif__tedarikci')
     
     def odenecek_goster(self, obj):
         return f"{obj.odenecek_net_tutar:,.2f} ₺"

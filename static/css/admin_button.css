@@ -49,3 +49,11 @@
     width: 100% !important; /* Kutuları tam genişlik yap */
     max-width: 600px; /* Çok geniş ekranlarda aşırı uzamasın */
 }
+
+/* Dashboard Kartları için Ek Stil */
+.module-card {
+    text-decoration: none !important;
+}
+.module-card:hover {
+    color: #333 !important;
+}

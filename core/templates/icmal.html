@@ -3,142 +3,190 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proje Maliyet İcmali</title>
+    <title>{% if arsiv_modu %}🗄️ Talep Arşivi{% else %}Teklif Yönetimi{% endif %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; border: none; }
-        .card-header { background-color: #2c3e50; color: white; font-weight: 600; padding: 15px; }
-        .teklif-kutusu { 
-            background-color: white; 
-            border: 1px solid #dee2e6; 
-            border-radius: 8px; 
-            padding: 12px; 
-            height: 100%; 
-            transition: all 0.3s;
-            position: relative;
-        }
-        .teklif-kutusu:hover { box-shadow: 0 10px 20px rgba(0,0,0,0.1); transform: translateY(-3px); }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; padding-bottom: 50px; }
         
+        .request-card { 
+            background: white; border: none; border-radius: 10px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px; 
+            overflow: hidden; border-left: 6px solid #bdc3c7;
+        }
+        .request-card.acil { border-left-color: #f1c40f; }
+        .request-card.cok_acil { border-left-color: #dc3545; }
+        .request-card.islemde { border-left-color: #3498db; }
+        .request-card.onaylandi { border-left-color: #198754; background-color: #f8fff9; }
+        /* Arşiv Rengi (Gri) */
+        .request-card.tamamlandi { border-left-color: #6c757d; background-color: #fcfcfc; opacity: 0.9; }
+
+        .req-header { padding: 15px 20px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .req-body { padding: 20px; background: #fdfdfd; }
+        .req-footer { background: #f1f2f6; padding: 10px 20px; font-size: 0.85rem; color: #7f8c8d; display: flex; gap: 20px; align-items: center; }
+
+        .teklif-wrapper { display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px; }
+        .teklif-kutusu { 
+            min-width: 280px; background-color: white; border: 1px solid #dee2e6; 
+            border-radius: 8px; padding: 15px; transition: all 0.3s; position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        .teklif-kutusu:hover { box-shadow: 0 10px 20px rgba(0,0,0,0.1); transform: translateY(-3px); border-color: #bbb; }
         .teklif-kutusu.onayli { border: 2px solid #198754; background-color: #f0fff4; }
         .teklif-kutusu.reddedildi { border: 1px solid #dc3545; background-color: #fff5f5; opacity: 0.6; }
-        
-        /* Butonlar */
-        .action-btn { width: 28px; height: 28px; line-height: 28px; text-align: center; border-radius: 50%; font-size: 11px; margin-left: 3px; cursor: pointer; }
-        .edit-btn { position: absolute; bottom: 12px; right: 12px; color: #6c757d; cursor: pointer; }
-        .edit-btn:hover { color: #0d6efd; }
+
+        .action-btn { width: 32px; height: 32px; line-height: 30px; text-align: center; border-radius: 50%; font-size: 13px; margin-left: 4px; cursor: pointer; transition: all 0.2s; }
+        .action-btn:hover { transform: scale(1.15); }
     </style>
 </head>
 <body>
 
-<div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4 sticky-top bg-white p-3 shadow-sm rounded">
+<div class="container-fluid" style="max-width: 1400px;">
+    
+    <div class="d-flex justify-content-between align-items-center my-4 sticky-top bg-white p-3 shadow-sm rounded" style="z-index: 1000;">
         <div>
-            <h1 class="h4 fw-bold text-dark mb-0">🏭 Fabrika Projesi Maliyet Tablosu</h1>
-            <small class="text-muted">Onaylamak için <i class="fas fa-check-circle text-success"></i> butonuna basınız.</small>
+            {% if arsiv_modu %}
+                <h2 class="h4 fw-bold text-secondary mb-0"><i class="fas fa-archive me-2"></i> TAMAMLANAN İŞLER ARŞİVİ</h2>
+                <p class="text-muted mb-0 small">Geçmişte tamamlanıp kapatılan talepler burada listelenir.</p>
+            {% else %}
+                <h2 class="h4 fw-bold text-dark mb-0"><i class="fas fa-tasks me-2"></i> İCMAL ve TEKLİF YÖNETİMİ</h2>
+                <p class="text-muted mb-0 small">Saha taleplerine göre toplanan teklifleri yönetin.</p>
+            {% endif %}
         </div>
         <div>
-            <a href="/" class="btn btn-secondary">📊 Anasayfa'ya Dön</a>
-            <a href="/admin/" class="btn btn-outline-dark">⚙️ Admin</a>
+            {% if arsiv_modu %}
+                <a href="{% url 'icmal_raporu' %}" class="btn btn-outline-primary fw-bold">
+                    <i class="fas fa-list-ul me-2"></i> Aktif Listeye Dön
+                </a>
+            {% else %}
+                <a href="{% url 'arsiv_raporu' %}" class="btn btn-outline-secondary me-2">
+                    <i class="fas fa-history me-2"></i> Arşiv (Geçmiş)
+                </a>
+                <a href="/" class="btn btn-secondary">← Ana Menü</a>
+            {% endif %}
         </div>
     </div>
 
-    {% for kategori in kategoriler %}
-    <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span>{{ kategori.isim }}</span>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-bordered mb-0 align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 20%">İş Kalemi</th>
-                            <th style="width: 10%">Miktar</th>
-                            <th style="width: 70%">Alınan Teklifler</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for kalem in kategori.kalemler.all %}
-                        <tr class="{% if kalem.durum_rengi == 'success' %}table-success{% endif %}" style="--bs-table-bg-opacity: .1;">
-                            <td class="fw-bold text-dark">
-                                {{ kalem.isim }}
-                                {% if kalem.durum_rengi == 'success' %}
-                                    <i class="fas fa-check-circle text-success ms-2" title="Tedarikçi Onaylandı"></i>
-                                {% endif %}
-                            </td>
-                            <td>{{ kalem.hedef_miktar|floatformat:0 }} {{ kalem.get_birim_display }}</td>
-                            <td>
-                                <div class="row g-2">
-                                    {% if kalem.teklifler.all %}
-                                        {% for teklif in kalem.teklifler.all %}
-                                        <div class="col-md-4 col-lg-3">
-                                            <div class="teklif-kutusu {% if teklif.durum == 'onaylandi' %}onayli{% elif teklif.durum == 'reddedildi' %}reddedildi{% endif %}">
-                                                
-                                                <div class="d-flex justify-content-between mb-2">
-                                                    <span class="badge {% if teklif.durum == 'onaylandi' %}bg-success{% elif teklif.durum == 'reddedildi' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
-                                                        {% if teklif.durum == 'onaylandi' %}SEÇİLDİ{% elif teklif.durum == 'reddedildi' %}RED{% else %}BEKLEMEDE{% endif %}
-                                                    </span>
-                                                    
-                                                    <div class="d-flex">
-                                                        <a href="/admin/core/teklif/{{ teklif.id }}/change/" target="_blank" class="btn btn-sm btn-outline-primary action-btn" title="Düzenle / Detay">
-                                                            <i class="fas fa-pencil-alt"></i>
-                                                        </a>
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
 
-                                                        {% if teklif.durum != 'onaylandi' %}
-                                                        <a href="{% url 'teklif_durum_guncelle' teklif.id 'onaylandi' %}" class="btn btn-sm btn-outline-success action-btn" title="Onayla">
-                                                            <i class="fas fa-check"></i>
-                                                        </a>
-                                                        {% endif %}
-                                                        
-                                                        {% if teklif.durum != 'reddedildi' %}
-                                                        <a href="{% url 'teklif_durum_guncelle' teklif.id 'reddedildi' %}" class="btn btn-sm btn-outline-danger action-btn" title="Reddet">
-                                                            <i class="fas fa-times"></i>
-                                                        </a>
-                                                        {% endif %}
-                                                    </div>
-                                                </div>
+    {% for talep in aktif_talepler %}
+    <div class="request-card {{ talep.oncelik }} {{ talep.durum }}">
+        
+        <div class="req-header">
+            <div class="d-flex align-items-center">
+                
+                <a href="{% url 'talep_sil' talep.id %}" class="text-danger me-3 opacity-50 hover-opacity-100" title="Talebi Sil" onclick="return confirm('Silmek istediğinize emin misiniz?');">
+                    <i class="fas fa-trash-alt"></i>
+                </a>
 
-                                                <div class="fw-bold small text-muted text-truncate">{{ teklif.tedarikci.firma_unvani }}</div>
-                                                <div class="fs-5 fw-bold text-dark my-1">
-                                                    {{ teklif.birim_fiyat|floatformat:2 }} {{ teklif.para_birimi }}
-                                                </div>
-                                                <div class="small text-secondary border-top pt-1 mt-1">
-                                                    Top: <strong>{{ teklif.toplam_fiyat_tl|floatformat:0 }} ₺</strong>
-                                                    {% if teklif.kdv_orani > 0 %}
-                                                    <span class="text-muted" style="font-size: 0.7rem;">(KDV Dahil)</span>
-                                                    {% endif %}
-                                                </div>
-                                                
-                                                {% if teklif.teklif_dosyasi %}
-                                                    <a href="{{ teklif.teklif_dosyasi.url }}" target="_blank" class="btn btn-sm btn-light w-100 mt-2 text-danger border" style="font-size: 0.8rem;">
-                                                        <i class="fas fa-file-pdf"></i> Teklifi Gör
-                                                    </a>
-                                                {% else %}
-                                                    <button class="btn btn-sm btn-light w-100 mt-2 text-muted border" disabled style="font-size: 0.8rem; opacity: 0.6;">
-                                                        <i class="fas fa-ban"></i> Dosya Yok
-                                                    </button>
-                                                {% endif %}
-                                                
-                                            </div>
-                                        </div>
-                                        {% endfor %}
-                                    {% else %}
-                                        <div class="col-12 text-muted small fst-italic ps-3">
-                                            <i class="fas fa-exclamation-circle"></i> Henüz teklif girişi yapılmadı.
-                                        </div>
-                                    {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <span class="badge bg-secondary me-2">#{{ talep.id }}</span>
+                
+                <span class="fw-bold fs-5 text-dark me-2">
+                    {% if talep.malzeme %}
+                        <i class="fas fa-box text-primary me-1"></i> {{ talep.malzeme.isim }}
+                    {% elif talep.is_kalemi %}
+                        <i class="fas fa-tools text-danger me-1"></i> {{ talep.is_kalemi.isim }}
+                    {% endif %}
+                </span>
+
+                <span class="fs-5 text-muted">
+                    x {{ talep.miktar }} 
+                    {% if talep.malzeme %}{{ talep.malzeme.get_birim_display }}
+                    {% else %}{{ talep.is_kalemi.get_birim_display }}{% endif %}
+                </span>
+                
+                {% if not arsiv_modu %}
+                    {% if talep.oncelik == 'cok_acil' %}<span class="badge bg-danger ms-2"><i class="fas fa-fire me-1"></i> ÇOK ACİL</span>
+                    {% elif talep.oncelik == 'acil' %}<span class="badge bg-warning text-dark ms-2"><i class="fas fa-bolt me-1"></i> ACİL</span>{% endif %}
+                {% endif %}
+                
+                {% if talep.durum == 'bekliyor' %}<span class="badge bg-light text-dark border ms-2">⏳ Onay Bekliyor</span>
+                {% elif talep.durum == 'islemde' %}<span class="badge bg-info text-dark ms-2">🔍 Teklif Toplanıyor</span>
+                {% elif talep.durum == 'tamamlandi' %}<span class="badge bg-secondary ms-2"><i class="fas fa-check-double me-1"></i> TAMAMLANDI</span>{% endif %}
+            </div>
+
+            <div>
+                {% if talep.durum == 'onaylandi' %}
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-success p-2"><i class="fas fa-check-circle me-1"></i> SİPARİŞ ONAYLANDI</span>
+                        <a href="{% url 'talep_tamamla' talep.id %}" class="btn btn-outline-secondary btn-sm" title="Listeden Kaldır / Arşivle">
+                            <i class="fas fa-archive me-1"></i> Arşivle
+                        </a>
+                    </div>
+                
+                {% elif talep.durum == 'bekliyor' %}
+                    <a href="{% url 'talep_onayla' talep.id %}" class="btn btn-warning btn-sm fw-bold shadow-sm text-dark"><i class="fas fa-play-circle me-1"></i> Onayla & Başlat</a>
+                    
+                {% elif talep.durum == 'islemde' %}
+                    <a href="{% url 'teklif_ekle' %}?talep_id={{ talep.id }}" class="btn btn-primary btn-sm fw-bold shadow-sm"><i class="fas fa-plus-circle me-1"></i> Teklif Gir</a>
+                
+                {% elif talep.durum == 'tamamlandi' %}
+                    <a href="{% url 'talep_arsivden_cikar' talep.id %}" class="btn btn-outline-dark btn-sm shadow-sm">
+                        <i class="fas fa-undo-alt me-1"></i> Aktif Listeye Geri Al
+                    </a>
+                {% endif %}
             </div>
         </div>
+
+        <div class="req-body">
+            {% if talep.teklifler.all %}
+                <div class="teklif-wrapper">
+                    {% for teklif in talep.teklifler.all %}
+                    <div class="teklif-kutusu {% if teklif.durum == 'onaylandi' %}onayli{% elif teklif.durum == 'reddedildi' %}reddedildi{% endif %}">
+                        
+                        <div class="d-flex justify-content-between mb-2 border-bottom pb-2">
+                            <span class="badge {% if teklif.durum == 'onaylandi' %}bg-success{% elif teklif.durum == 'reddedildi' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                {{ teklif.get_durum_display }}
+                            </span>
+                            
+                            {% if not arsiv_modu %}
+                            <div class="d-flex">
+                                <a href="/admin/core/teklif/{{ teklif.id }}/change/" target="_blank" class="btn btn-outline-primary action-btn"><i class="fas fa-pencil-alt"></i></a>
+                                {% if teklif.durum != 'onaylandi' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'onaylandi' %}" class="btn btn-outline-success action-btn"><i class="fas fa-check"></i></a>{% endif %}
+                                {% if teklif.durum != 'beklemede' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'beklemede' %}" class="btn btn-outline-warning action-btn"><i class="fas fa-hourglass-half"></i></a>{% endif %}
+                                {% if teklif.durum != 'reddedildi' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'reddedildi' %}" class="btn btn-outline-danger action-btn"><i class="fas fa-times"></i></a>{% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="fw-bold text-primary text-truncate mb-1">{{ teklif.tedarikci.firma_unvani }}</div>
+                        <div class="fs-4 fw-bold text-dark mb-1">{{ teklif.toplam_fiyat_tl|floatformat:0 }} ₺</div>
+                        <div class="small text-muted">Birim: {{ teklif.birim_fiyat|floatformat:2 }} {{ teklif.para_birimi }} {% if teklif.kdv_orani > 0 %}(+KDV){% endif %}</div>
+                        
+                        {% if teklif.teklif_dosyasi %}
+                            <a href="{{ teklif.teklif_dosyasi.url }}" target="_blank" class="btn btn-sm btn-light w-100 mt-3 text-danger border"><i class="fas fa-file-pdf me-1"></i> Dosya</a>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-4 text-muted border border-dashed rounded bg-light">
+                    <i class="fas fa-inbox fa-2x mb-2 text-secondary"></i><br>Teklif bulunamadı.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="req-footer">
+            <span><i class="fas fa-user me-1"></i> Talep: <strong>{% if talep.talep_eden %}{{ talep.talep_eden.get_full_name|default:talep.talep_eden.username }}{% else %}Bilinmiyor{% endif %}</strong></span>
+            <span><i class="fas fa-map-marker-alt me-1"></i> {{ talep.proje_yeri|default:"-" }}</span>
+            <span><i class="fas fa-calendar-alt me-1"></i> {{ talep.tarih|date:"d.m.Y" }}</span>
+            {% if talep.aciklama %}<span class="text-truncate" style="max-width: 300px;" title="{{ talep.aciklama }}"><i class="fas fa-comment-alt me-1"></i> {{ talep.aciklama }}</span>{% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <div class="text-center py-5">
+        <h3 class="text-muted fw-bold">Liste Boş</h3>
+        <p class="text-secondary">{% if arsiv_modu %}Henüz arşivlenmiş (tamamlanmış) bir iş yok.{% else %}Aktif bir talep bulunmuyor.{% endif %}</p>
     </div>
     {% endfor %}
+
 </div>
 
 </body>
