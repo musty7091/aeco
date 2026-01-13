@@ -114,11 +114,15 @@ class TedarikciForm(forms.ModelForm):
 class MalzemeForm(forms.ModelForm):
     class Meta:
         model = Malzeme
-        fields = ['isim', 'birim', 'kritik_stok']
+        fields = ['kategori', 'isim', 'marka', 'birim', 'kdv_orani', 'kritik_stok', 'aciklama']
         widgets = {
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Çimento (40kg Torba)'}),
+            'kategori': forms.Select(attrs={'class': 'form-select'}),
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Saten Alçı'}),
+            'marka': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Knauf'}),
             'birim': forms.Select(attrs={'class': 'form-select'}),
-            'kritik_stok': forms.NumberInput(attrs={'class': 'form-control', 'value': 10}),
+            'kdv_orani': forms.Select(attrs={'class': 'form-select'}),
+            'kritik_stok': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '10'}),
+            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Varsa ölçü, renk veya teknik kod...'}),
         }
 
 # ========================================================

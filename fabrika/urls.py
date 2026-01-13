@@ -40,6 +40,8 @@ urlpatterns = [
     path('talep/sil/<int:talep_id>/', views.talep_sil, name='talep_sil'),
     path('arsiv/', views.arsiv_raporu, name='arsiv_raporu'),
     path('talep/geri-al/<int:talep_id>/', views.talep_arsivden_cikar, name='talep_arsivden_cikar'),
+
+    path('stok-listesi/', views.stok_listesi, name='stok_listesi'),
     
     # 8. Yazdırma & Çıktı
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),

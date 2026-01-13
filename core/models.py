@@ -5,6 +5,15 @@ from django.db.models import Sum
 from django.core.exceptions import ValidationError
 
 # ==========================================
+# SABİTLER (GLOBAL)
+# ==========================================
+
+# KDV Oranlarını en tepeye aldık ki hem Malzeme hem Teklif kullanabilsin.
+KDV_ORANLARI = [
+    (0, '%0'), (5, '%5'), (10, '%10'), (16, '%16'), (20, '%20'), (-1, 'Özel Matrah'),
+]
+
+# ==========================================
 # 1. KATEGORİ VE İMALAT YAPISI
 # ==========================================
 
@@ -68,9 +77,32 @@ class Depo(models.Model):
         verbose_name_plural = "Depo Tanımları"
 
 class Malzeme(models.Model):
+    # Kategori seçenekleri
+    KATEGORILER = [
+        ('genel', 'Genel Malzeme'),
+        ('hirdavat', 'Hırdavat / Nalburiye'),
+        ('elektrik', 'Elektrik & Aydınlatma'),
+        ('mekanik', 'Mekanik & Tesisat'),
+        ('insaat', 'Kaba İnşaat (Çimento/Demir)'),
+        ('boya', 'Boya & Kimyasal'),
+        ('demirbas', 'Demirbaş / Ekipman'),
+    ]
+    
     isim = models.CharField(max_length=200, verbose_name="Malzeme Adı (Örn: Ø14 Demir)")
+    
+    # YENİ ALANLAR:
+    kategori = models.CharField(max_length=20, choices=KATEGORILER, default='genel', verbose_name="Malzeme Grubu")
+    marka = models.CharField(max_length=100, blank=True, verbose_name="Marka / Model", help_text="Örn: Bosch, Vitra vb.")
+    
     birim = models.CharField(max_length=20, choices=IsKalemi.BIRIMLER, default='adet')
+    
+    # YENİ ALAN: KDV (Global sabiti kullanıyor)
+    kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
+    
     kritik_stok = models.FloatField(default=10, verbose_name="Kritik Stok Uyarı Limiti")
+    
+    # YENİ ALAN: DETAYLI AÇIKLAMA
+    aciklama = models.TextField(blank=True, verbose_name="Teknik Özellikler / Notlar")
     
     # --- STOK HESABI ---
     @property
@@ -87,14 +119,14 @@ class Malzeme(models.Model):
         return giren - cikan - iade_iptal
 
     def __str__(self):
-        return self.isim
+        return f"{self.isim} ({self.marka})" if self.marka else self.isim
     
     class Meta:
         verbose_name = "7. Envanter (Stok Durumu)"
         verbose_name_plural = "7. Envanter (Stok Durumu)"
 
 # ==========================================
-# 4. MALZEME TALEP FORMU (Teklif'ten Önce Tanımlanmalı)
+# 4. MALZEME TALEP FORMU
 # ==========================================
 
 class MalzemeTalep(models.Model):
@@ -114,7 +146,7 @@ class MalzemeTalep(models.Model):
 
     talep_eden = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Talep Eden")
     
-    # HİBRİT YAPI: İkisi de opsiyonel (null=True), ama kodla birini zorunlu kılacağız.
+    # HİBRİT YAPI
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
     is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="İş Kalemi (Hizmet/Taşeron)")
     
@@ -159,15 +191,10 @@ class Teklif(models.Model):
         ('EUR', '€ Euro'), ('GBP', '£ İngiliz Sterlini'),
     ]
     
-    # KDV STANDARTLARI
-    KDV_ORANLARI = [
-        (0, '%0'), (5, '%5'), (10, '%10'), (16, '%16'), (20, '%20'), (-1, 'Özel Matrah'),
-    ]
-    
-    # YENİ ALAN: Bu teklif hangi talebe istinaden veriliyor?
+    # YENİ ALAN: Talep bağlantısı
     talep = models.ForeignKey(MalzemeTalep, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="İlgili Talep")
     
-    # Hibrit Yapı (Talep yoksa manuel seçim için korunuyor)
+    # Hibrit Yapı
     is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="İş Kalemi (Taşeronluk)")
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
     
@@ -180,6 +207,7 @@ class Teklif(models.Model):
     kur_degeri = models.DecimalField(max_digits=10, decimal_places=4, default=1.0000, verbose_name="İşlem Kuru")
     
     kdv_dahil_mi = models.BooleanField(default=False, verbose_name="Bu fiyata KDV Dahil mi?")
+    # Burada global sabiti kullanıyoruz
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="KDV Oranı")
     
     teklif_dosyasi = models.FileField(upload_to='teklifler/', blank=True, null=True, verbose_name="Teklif PDF/Resim")
@@ -188,22 +216,17 @@ class Teklif(models.Model):
     olusturulma_tarihi = models.DateTimeField(auto_now_add=True)
     
     def clean(self):
-        # Eğer bir talebe bağlıysa malzeme/iş kalemi kontrolünü esnetebiliriz, 
-        # ancak sistem bütünlüğü için yine de dolu olmalı (Otomatik doluyor zaten).
         if not self.is_kalemi and not self.malzeme:
             raise ValidationError("Lütfen ya bir 'İş Kalemi' ya da bir 'Malzeme' seçiniz.")
         if self.is_kalemi and self.malzeme:
             raise ValidationError("Aynı anda hem İş Kalemi hem Malzeme seçemezsiniz.")
 
     def save(self, *args, **kwargs):
-        # 1. KDV Hesabı (Mevcut Logic)
         kdv_carpani = 0 if self.kdv_orani == -1 else self.kdv_orani
         if self.kdv_dahil_mi:
             self.birim_fiyat = self.birim_fiyat / (1 + (kdv_carpani / 100))
             self.kdv_dahil_mi = False
             
-        # 2. Talep Durumunu Güncelleme (YENİ LOGIC)
-        # Eğer yeni bir teklif giriliyorsa ve bağlı olduğu talep "Bekliyor" ise, "İşlemde" yap.
         if self.pk is None and self.talep:
             if self.talep.durum == 'bekliyor':
                 self.talep.durum = 'islemde'

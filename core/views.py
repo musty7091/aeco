@@ -759,6 +759,43 @@ def talep_arsivden_cikar(request, talep_id):
         
     return redirect('arsiv_raporu')
 
+@login_required
+def stok_listesi(request):
+    """
+    Tüm malzemelerin listelendiği, kritik stok durumlarının görüldüğü ana ekran.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    # Arama motoru
+    search_query = request.GET.get('search', '')
+    
+    if search_query:
+        malzemeler = Malzeme.objects.filter(isim__icontains=search_query)
+    else:
+        malzemeler = Malzeme.objects.all()
+
+    # Stok durumlarını analiz edelim (Uyarı kartları için)
+    kritik_sayisi = 0
+    toplam_cesit = malzemeler.count()
+    
+    # Not: Stok hesabı property olduğu için veritabanında filter yapamıyoruz, döngüde bakacağız.
+    # Ancak liste çok uzun değilse bu sorun olmaz.
+    for malz in malzemeler:
+        if malz.stok <= malz.kritik_stok:
+            malz.kritik_durum = True # HTML'de kullanmak için geçici işaret
+            kritik_sayisi += 1
+        else:
+            malz.kritik_durum = False
+
+    context = {
+        'malzemeler': malzemeler,
+        'search_query': search_query,
+        'toplam_cesit': toplam_cesit,
+        'kritik_sayisi': kritik_sayisi,
+    }
+    return render(request, 'stok_listesi.html', context)
+
 def cikis_yap(request):
     logout(request)
     return redirect('/admin/login/')
