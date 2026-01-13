@@ -33,10 +33,15 @@ class IsKalemi(models.Model):
         ('adam_saat', 'Adam/Saat'), ('goturu', 'Götürü (Toplu)'),
     ]
     
-    kategori = models.ForeignKey(Kategori, on_delete=models.CASCADE, related_name='kalemler')
+    # Kategori şimdilik opsiyonel olsun veya sabit bir kategori seçelim
+    kategori = models.ForeignKey(Kategori, on_delete=models.CASCADE, related_name='kalemler', verbose_name="Kategori")
     isim = models.CharField(max_length=200, verbose_name="İş Kalemi Adı")
     hedef_miktar = models.FloatField(default=1, verbose_name="Yaklaşık Metraj")
     birim = models.CharField(max_length=20, choices=BIRIMLER, default='adet')
+    
+    # YENİ EKLENEN ALANLAR
+    kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
+    aciklama = models.TextField(blank=True, verbose_name="İş Tanımı / Teknik Şartname")
     
     def __str__(self):
         return f"{self.isim} ({self.hedef_miktar} {self.get_birim_display()})"

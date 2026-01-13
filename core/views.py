@@ -7,10 +7,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import (
     Kategori, GiderKategorisi, Teklif, Odeme, Harcama, 
-    Tedarikci, Malzeme, DepoHareket, Hakedis, MalzemeTalep
+    Tedarikci, Malzeme, DepoHareket, Hakedis, MalzemeTalep, IsKalemi
 )
 from .utils import tcmb_kur_getir
-from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm # Yeni formları import etmeyi unutmayın
+from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm # Yeni formları import etmeyi unutmayın
 
 # ========================================================
 # 0. YARDIMCI GÜVENLİK FONKSİYONU
@@ -194,17 +194,24 @@ def tedarikci_ekle(request):
 @login_required
 def malzeme_ekle(request):
     """
-    Hızlı malzeme tanımlama ekranı.
+    Yeni malzeme stok kartı tanımlama ekranı.
+    Kaydettikten sonra Stok Listesine yönlendirir.
     """
-    if not yetki_kontrol(request.user, ['SAHA_EKIBI', 'OFIS_VE_SATINALMA', 'YONETICI']):
+    # Yetki Kontrolü
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
         return redirect('erisim_engellendi')
 
     if request.method == 'POST':
         form = MalzemeForm(request.POST)
         if form.is_valid():
-            mal = form.save()
-            messages.success(request, f"✅ {mal.isim} stok kartı açıldı.")
-            return redirect('malzeme_ekle')
+            malzeme = form.save()
+            messages.success(request, f"✅ {malzeme.isim} başarıyla stok kartlarına eklendi.")
+            
+            # --- DÜZELTME BURADA ---
+            # Kayıt başarılıysa 'stok_listesi' sayfasına git (redirect)
+            return redirect('stok_listesi') 
+        else:
+            messages.error(request, "Lütfen formdaki hataları düzeltiniz.")
     else:
         form = MalzemeForm()
 
@@ -795,6 +802,77 @@ def stok_listesi(request):
         'kritik_sayisi': kritik_sayisi,
     }
     return render(request, 'stok_listesi.html', context)
+
+@login_required
+def hizmet_listesi(request):
+    """
+    Tüm hizmet/iş kalemlerinin listelendiği ekran.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    hizmetler = IsKalemi.objects.all().select_related('kategori')
+    
+    return render(request, 'hizmet_listesi.html', {'hizmetler': hizmetler})
+
+@login_required
+def hizmet_ekle(request):
+    """
+    Yeni hizmet/iş kalemi tanımlama ekranı.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    if request.method == 'POST':
+        form = IsKalemiForm(request.POST)
+        if form.is_valid():
+            hizmet = form.save()
+            messages.success(request, f"✅ {hizmet.isim} hizmet kartı oluşturuldu.")
+            return redirect('hizmet_listesi')
+        else:
+            messages.error(request, "Lütfen hataları düzeltiniz.")
+    else:
+        form = IsKalemiForm()
+
+    return render(request, 'hizmet_ekle.html', {'form': form})
+
+@login_required
+def hizmet_duzenle(request, pk):
+    """
+    Mevcut bir hizmet kalemini düzenler.
+    """
+    # Saha ekibi de düzenleyebilsin diye yetkiyi genişlettik
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI', 'SAHA_VE_DEPO']):
+        return redirect('erisim_engellendi')
+
+    hizmet = get_object_or_404(IsKalemi, pk=pk)
+
+    if request.method == 'POST':
+        form = IsKalemiForm(request.POST, instance=hizmet)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ {hizmet.isim} güncellendi.")
+            return redirect('hizmet_listesi')
+    else:
+        form = IsKalemiForm(instance=hizmet)
+
+    # Mevcut ekleme sayfasını "Düzenleme Modu"nda kullanıyoruz
+    return render(request, 'hizmet_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def hizmet_sil(request, pk):
+    """
+    Hizmet kalemini siler.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI', 'SAHA_VE_DEPO']):
+        return redirect('erisim_engellendi')
+
+    hizmet = get_object_or_404(IsKalemi, pk=pk)
+    isim = hizmet.isim
+    hizmet.delete()
+    messages.warning(request, f"🗑️ {isim} listeden silindi.")
+    
+    return redirect('hizmet_listesi')
 
 def cikis_yap(request):
     logout(request)

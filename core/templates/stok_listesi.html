@@ -12,12 +12,8 @@
         .bg-gradient-primary { background: linear-gradient(45deg, #4e73df, #224abe); color: white; }
         .bg-gradient-danger { background: linear-gradient(45deg, #e74a3b, #be2617); color: white; }
         
-        /* Tablo Satırları */
         tr.kritik-stok { background-color: #fff3f3 !important; border-left: 5px solid #e74a3b; }
         tr.normal-stok { border-left: 5px solid #1cc88a; }
-        
-        .action-icon { cursor: pointer; transition: transform 0.2s; color: #858796; }
-        .action-icon:hover { transform: scale(1.2); color: #4e73df; }
     </style>
 </head>
 <body>
@@ -25,13 +21,18 @@
 <div class="container-fluid py-4" style="max-width: 1400px;">
     
     <div class="row mb-4">
-        <div class="col-md-6 d-flex align-items-center">
+        <div class="col-md-5 d-flex align-items-center">
             <h1 class="h3 mb-0 text-gray-800 fw-bold"><i class="fas fa-boxes me-2"></i> MALZEME & STOK LİSTESİ</h1>
         </div>
-        <div class="col-md-6 text-end">
-            <a href="/" class="btn btn-secondary me-2">Ana Menü</a>
-            <a href="{% url 'malzeme_ekle' %}" class="btn btn-primary shadow-sm">
-                <i class="fas fa-plus fa-sm text-white-50 me-2"></i> Yeni Malzeme Tanımla
+        <div class="col-md-7 text-end">
+            <a href="/" class="btn btn-secondary me-1">Ana Menü</a>
+            
+            <a href="{% url 'hizmet_listesi' %}" class="btn btn-info text-white shadow-sm me-1 fw-bold">
+                <i class="fas fa-tools me-1"></i> Hizmet Tanımları
+            </a>
+
+            <a href="{% url 'malzeme_ekle' %}" class="btn btn-primary shadow-sm fw-bold">
+                <i class="fas fa-plus fa-sm text-white-50 me-2"></i> Yeni Malzeme Ekle
             </a>
         </div>
     </div>
@@ -45,9 +46,7 @@
                             <div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Toplam Çeşit</div>
                             <div class="h3 mb-0 fw-bold">{{ toplam_cesit }}</div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-layer-group fa-2x text-white-50"></i>
-                        </div>
+                        <div class="col-auto"><i class="fas fa-layer-group fa-2x text-white-50"></i></div>
                     </div>
                 </div>
             </div>
@@ -61,9 +60,7 @@
                             <div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Kritik Seviyedeki Ürünler</div>
                             <div class="h3 mb-0 fw-bold">{{ kritik_sayisi }}</div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-exclamation-triangle fa-2x text-white-50"></i>
-                        </div>
+                        <div class="col-auto"><i class="fas fa-exclamation-triangle fa-2x text-white-50"></i></div>
                     </div>
                 </div>
             </div>
@@ -97,31 +94,22 @@
                     <tbody>
                         {% for malz in malzemeler %}
                         <tr class="{% if malz.kritik_durum %}kritik-stok{% else %}normal-stok{% endif %}">
-                            <td class="fw-bold text-dark px-3">
-                                {{ malz.isim }}
-                            </td>
+                            <td class="fw-bold text-dark px-3">{{ malz.isim }}</td>
                             <td><span class="badge bg-light text-dark border">{{ malz.get_birim_display }}</span></td>
                             <td>
                                 <span class="fw-bold fs-5 {% if malz.kritik_durum %}text-danger{% else %}text-success{% endif %}">
                                     {{ malz.stok|floatformat:0 }}
                                 </span>
                             </td>
-                            <td class="text-muted small">
-                                <i class="fas fa-bell me-1"></i> {{ malz.kritik_stok }} altına inerse
-                            </td>
+                            <td class="text-muted small"><i class="fas fa-bell me-1"></i> {{ malz.kritik_stok }} altına inerse</td>
                             <td>
-                                {% if malz.kritik_durum %}
-                                    <span class="badge bg-danger">KRİTİK DÜZEY</span>
-                                {% else %}
-                                    <span class="badge bg-success">YETERLİ</span>
-                                {% endif %}
+                                {% if malz.kritik_durum %}<span class="badge bg-danger">KRİTİK DÜZEY</span>{% else %}<span class="badge bg-success">YETERLİ</span>{% endif %}
                             </td>
                         </tr>
                         {% empty %}
                         <tr>
                             <td colspan="5" class="text-center py-5 text-muted">
-                                <i class="fas fa-box-open fa-3x mb-3"></i><br>
-                                Kayıtlı malzeme bulunamadı.
+                                <i class="fas fa-box-open fa-3x mb-3"></i><br>Kayıtlı malzeme bulunamadı.
                             </td>
                         </tr>
                         {% endfor %}

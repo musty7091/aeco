@@ -2,6 +2,7 @@ from django import forms
 from .models import DepoTransfer, Depo, Teklif, Malzeme, IsKalemi, Tedarikci
 from .models import MalzemeTalep
 
+
 # ========================================================
 # 1. MEVCUT FORMUNUZ: DEPO TRANSFER
 # ========================================================
@@ -154,3 +155,16 @@ class TalepForm(forms.ModelForm):
             raise forms.ValidationError("İkisini aynı anda seçemezsiniz.")
         
         return cleaned_data
+
+class IsKalemiForm(forms.ModelForm):
+    class Meta:
+        model = IsKalemi
+        fields = ['kategori', 'isim', 'birim', 'hedef_miktar', 'kdv_orani', 'aciklama']
+        widgets = {
+            'kategori': forms.Select(attrs={'class': 'form-select'}),
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Temel Kazısı'}),
+            'birim': forms.Select(attrs={'class': 'form-select'}),
+            'hedef_miktar': forms.NumberInput(attrs={'class': 'form-control'}),
+            'kdv_orani': forms.Select(attrs={'class': 'form-select'}),
+            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Yapılacak işin detayı...'}),
+        }

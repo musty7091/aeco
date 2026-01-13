@@ -42,6 +42,10 @@ urlpatterns = [
     path('talep/geri-al/<int:talep_id>/', views.talep_arsivden_cikar, name='talep_arsivden_cikar'),
 
     path('stok-listesi/', views.stok_listesi, name='stok_listesi'),
+    path('hizmet-listesi/', views.hizmet_listesi, name='hizmet_listesi'),
+    path('hizmet/ekle/', views.hizmet_ekle, name='hizmet_ekle'),
+    path('hizmet/duzenle/<int:pk>/', views.hizmet_duzenle, name='hizmet_duzenle'),
+    path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
     
     # 8. Yazdırma & Çıktı
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),

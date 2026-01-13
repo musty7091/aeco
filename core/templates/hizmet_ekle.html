@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yeni Hizmet Tanımla</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-7">
+            <div class="card shadow border-0">
+                <div class="card-header bg-primary text-white py-3">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="fas fa-hammer me-2"></i> 
+                        {% if duzenleme_modu %}Hizmet Kartını Düzenle{% else %}Yeni Hizmet Kartı Oluştur{% endif %}
+                    </h5>
+                </div>
+                <div class="card-body p-4">
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">İş Kategorisi</label>
+                            {{ form.kategori }}
+                            <div class="form-text">Örn: İnşaat İşleri, Tesisat İşleri...</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Hizmet / İş Adı</label>
+                            {{ form.isim }}
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Birim</label>
+                                {{ form.birim }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">KDV Oranı</label>
+                                {{ form.kdv_orani }}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Yaklaşık Metraj (Hedef)</label>
+                            {{ form.hedef_miktar }}
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">İş Tanımı / Detaylar</label>
+                            {{ form.aciklama }}
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">KAYDET</button>
+                            <a href="{% url 'hizmet_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                        </div>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

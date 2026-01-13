@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hizmet & İş Kalemleri</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+        .action-btn { transition: transform 0.2s; }
+        .action-btn:hover { transform: scale(1.2); }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid py-4" style="max-width: 1400px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0 text-dark fw-bold"><i class="fas fa-tools me-2 text-primary"></i> HİZMET & İŞ KALEMLERİ LİSTESİ</h1>
+        <div>
+            <a href="/" class="btn btn-secondary me-2">Ana Menü</a>
+            <a href="{% url 'hizmet_ekle' %}" class="btn btn-primary shadow-sm">
+                <i class="fas fa-plus me-2"></i> Yeni Hizmet Tanımla
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-primary text-white">
+                        <tr>
+                            <th class="ps-4">Kategori</th>
+                            <th>Hizmet / İş Adı</th>
+                            <th>Birim</th>
+                            <th>Varsayılan KDV</th>
+                            <th>Tahmini Metraj</th>
+                            <th class="text-end pe-4">İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for hizmet in hizmetler %}
+                        <tr>
+                            <td class="ps-4"><span class="badge bg-light text-dark border">{{ hizmet.kategori.isim }}</span></td>
+                            <td class="fw-bold text-primary">{{ hizmet.isim }}</td>
+                            <td>{{ hizmet.get_birim_display }}</td>
+                            <td>%{{ hizmet.kdv_orani }}</td>
+                            <td>{{ hizmet.hedef_miktar|floatformat:0 }}</td>
+                            <td class="text-end pe-4">
+                                <a href="{% url 'hizmet_duzenle' hizmet.id %}" class="btn btn-sm btn-outline-primary action-btn" title="Düzenle">
+                                    <i class="fas fa-pencil-alt"></i>
+                                </a>
+                                
+                                <a href="{% url 'hizmet_sil' hizmet.id %}" class="btn btn-sm btn-outline-danger action-btn ms-1" title="Sil" onclick="return confirm('{{ hizmet.isim }} hizmetini silmek istediğinize emin misiniz?');">
+                                    <i class="fas fa-trash-alt"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">Henüz tanımlı bir hizmet yok.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
