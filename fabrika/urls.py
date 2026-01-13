@@ -46,6 +46,11 @@ urlpatterns = [
     path('hizmet/ekle/', views.hizmet_ekle, name='hizmet_ekle'),
     path('hizmet/duzenle/<int:pk>/', views.hizmet_duzenle, name='hizmet_duzenle'),
     path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
+    path('siparisler/', views.siparis_listesi, name='siparis_listesi'),
+    path('mal-kabul/<int:siparis_id>/', views.mal_kabul, name='mal_kabul'),
+    path('siparisler/', views.siparis_listesi, name='siparis_listesi'),
+    path('mal-kabul/<int:siparis_id>/', views.mal_kabul, name='mal_kabul'),
+    path('siparis/detay/<int:siparis_id>/', views.siparis_detay, name='siparis_detay'),
     
     # 8. Yazdırma & Çıktı
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),

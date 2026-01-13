@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Mal Kabul Girişi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-6">
+            <div class="card shadow border-0">
+                <div class="card-header bg-primary text-white py-3 text-center">
+                    <h5 class="mb-0 fw-bold"><i class="fas fa-dolly me-2"></i> MAL KABUL GİRİŞİ</h5>
+                </div>
+                <div class="card-body p-4">
+                    
+                    <div class="alert alert-info d-flex align-items-center">
+                        <i class="fas fa-info-circle fa-2x me-3"></i>
+                        <div>
+                            <strong>{{ siparis.teklif.tedarikci.firma_unvani }}</strong> firmasından<br>
+                            <strong>{{ siparis.kalan_miktar }} {{ siparis.teklif.malzeme.get_birim_display }}</strong> daha alacağımız var.
+                        </div>
+                    </div>
+
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">İrsaliye Tarihi</label>
+                            <input type="date" name="tarih" class="form-control" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">İrsaliye No</label>
+                            <input type="text" name="irsaliye_no" class="form-control" placeholder="Evrak üzerindeki numara" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-success">Gelen Miktar</label>
+                            <input type="number" step="0.01" name="gelen_miktar" class="form-control form-control-lg border-success" placeholder="Kaç adet geldi?" required>
+                            <div class="form-text">Dikkat: Kalan miktardan fazla girmeyiniz.</div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Hangi Depoya İniyor?</label>
+                            <select name="depo_id" class="form-select" required>
+                                {% for depo in depolar %}
+                                    <option value="{{ depo.id }}">{{ depo.isim }} {% if depo.is_sanal %}(Sanal){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Açıklama (Plaka, Şoför vb.)</label>
+                            <input type="text" name="aciklama" class="form-control">
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg fw-bold">
+                                <i class="fas fa-save me-2"></i> STOĞA İŞLE
+                            </button>
+                            <a href="{% url 'siparis_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                        </div>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

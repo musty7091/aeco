@@ -273,32 +273,51 @@ class Teklif(models.Model):
 
 class SatinAlma(models.Model):
     TESLIMAT_DURUMLARI = [
-        ('bekliyor', 'Bekliyor (Henüz Gelmedi)'),
-        ('kismi', 'Kısmi Teslimat'),
-        ('tamamlandi', 'Tamamlandı (Stoklara Girdi)'),
-        ('sanal', 'Sanal Depoda (Tedarikçide Bekliyor)'),
+        ('bekliyor', '🔴 Bekliyor (Hiç Gelmedi)'),
+        ('kismi', '🟠 Kısmi Teslimat (Eksik Var)'),
+        ('tamamlandi', '🟢 Tamamlandı (Hepsi Geldi)'),
     ]
     
-    teklif = models.OneToOneField(Teklif, on_delete=models.CASCADE, related_name='satinalma_donusumu', verbose_name="İlgili Onaylı Teklif")
+    # Teklif ile birebir bağ (Hangi onaylı teklifin siparişi?)
+    teklif = models.OneToOneField(Teklif, on_delete=models.CASCADE, related_name='satinalma_donusumu', verbose_name="İlgili Teklif")
     
-    fatura_no = models.CharField(max_length=50, blank=True, verbose_name="Fatura No")
-    fatura_tarihi = models.DateField(default=timezone.now, verbose_name="Fatura Tarihi")
+    # Süreç Takibi
+    siparis_tarihi = models.DateField(default=timezone.now, verbose_name="Sipariş Tarihi")
+    teslimat_durumu = models.CharField(max_length=20, choices=TESLIMAT_DURUMLARI, default='bekliyor')
     
-    teslimat_durumu = models.CharField(max_length=20, choices=TESLIMAT_DURUMLARI, default='bekliyor', verbose_name="Teslimat Durumu")
-    notlar = models.TextField(blank=True, verbose_name="Satınalma/Teslimat Notları")
+    # Miktar Takibi (Kritik Alanlar)
+    toplam_miktar = models.FloatField(default=0, verbose_name="Sipariş Edilen Toplam")
+    teslim_edilen = models.FloatField(default=0, verbose_name="Şuana Kadar Gelen")
     
+    aciklama = models.TextField(blank=True, verbose_name="Notlar")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"SİPARİŞ: {self.teklif.tedarikci} - {self.toplam_tutar_goster}"
+    def save(self, *args, **kwargs):
+        # Otomatik Durum Güncelleme Mantığı
+        if self.teslim_edilen == 0:
+            self.teslimat_durumu = 'bekliyor'
+        elif 0 < self.teslim_edilen < self.toplam_miktar:
+            self.teslimat_durumu = 'kismi'
+        elif self.teslim_edilen >= self.toplam_miktar:
+            self.teslimat_durumu = 'tamamlandi'
+            
+        super(SatinAlma, self).save(*args, **kwargs)
 
     @property
-    def toplam_tutar_goster(self):
-        return f"{self.teklif.toplam_fiyat_tl:,.2f} TL"
+    def kalan_miktar(self):
+        return self.toplam_miktar - self.teslim_edilen
+
+    @property
+    def tamamlanma_yuzdesi(self):
+        if self.toplam_miktar == 0: return 0
+        return (self.teslim_edilen / self.toplam_miktar) * 100
+
+    def __str__(self):
+        return f"{self.teklif.tedarikci} - {self.teklif.malzeme.isim} (Kalan: {self.kalan_miktar})"
 
     class Meta:
-        verbose_name = "4. Satınalma (Kesinleşen)"
-        verbose_name_plural = "4. Satınalma (Kesinleşen)"
+        verbose_name = "4. Satınalma & Siparişler"
+        verbose_name_plural = "4. Satınalma & Siparişler"
 
 
 # ==========================================
@@ -414,18 +433,22 @@ class DepoHareket(models.Model):
 
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='hareketler')
     depo = models.ForeignKey(Depo, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="İlgili Depo")
+    siparis = models.ForeignKey('SatinAlma', on_delete=models.SET_NULL, null=True, blank=True, related_name='depo_hareketleri', verbose_name="Bağlı Sipariş")
     
     tarih = models.DateField(default=timezone.now)
     islem_turu = models.CharField(max_length=10, choices=ISLEM_TURLERI)
     miktar = models.FloatField(verbose_name="Miktar")
+    tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
+    irsaliye_no = models.CharField(max_length=50, blank=True, verbose_name="İrsaliye No")
+    aciklama = models.CharField(max_length=300, blank=True, verbose_name="Açıklama / Kullanılan Yer")
+    iade_sebebi = models.CharField(max_length=200, blank=True, verbose_name="Red Sebebi")
+    iade_aksiyonu = models.CharField(max_length=20, choices=IADE_AKSIYONLARI, default='yok', verbose_name="İade Sonucu")
+    kanit_gorseli = models.ImageField(upload_to='depo_kanit/', blank=True, null=True, verbose_name="Hasar/Kanıt Fotoğrafı")
     
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
     irsaliye_no = models.CharField(max_length=50, blank=True, verbose_name="İrsaliye No")
     aciklama = models.CharField(max_length=300, blank=True, verbose_name="Açıklama / Kullanılan Yer")
     
-    iade_sebebi = models.CharField(max_length=200, blank=True, verbose_name="Red Sebebi")
-    iade_aksiyonu = models.CharField(max_length=20, choices=IADE_AKSIYONLARI, default='yok', verbose_name="İade Sonucu")
-    kanit_gorseli = models.ImageField(upload_to='depo_kanit/', blank=True, null=True, verbose_name="Hasar/Kanıt Fotoğrafı")
 
     def __str__(self):
         return f"{self.get_islem_turu_display()} - {self.malzeme.isim}"

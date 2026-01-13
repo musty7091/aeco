@@ -6,8 +6,9 @@ from django.db.models import Sum
 from django.contrib.auth.decorators import login_required 
 from django.contrib import messages
 from .models import (
-    Kategori, GiderKategorisi, Teklif, Odeme, Harcama, 
-    Tedarikci, Malzeme, DepoHareket, Hakedis, MalzemeTalep, IsKalemi
+    Kategori, IsKalemi, Tedarikci, Depo, Malzeme, 
+    MalzemeTalep, Teklif, SatinAlma, DepoHareket,
+    Odeme, Harcama, GiderKategorisi, Hakedis
 )
 from .utils import tcmb_kur_getir
 from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm # Yeni formları import etmeyi unutmayın
@@ -219,34 +220,40 @@ def malzeme_ekle(request):
 
 @login_required
 def teklif_durum_guncelle(request, teklif_id, yeni_durum):
+    # Yetki kontrolü...
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
     teklif = get_object_or_404(Teklif, id=teklif_id)
+    eski_durum = teklif.durum
+    teklif.durum = yeni_durum
+    teklif.save()
     
-    if yeni_durum == 'onaylandi':
-        # 1. Bu teklifi onayla
-        teklif.durum = 'onaylandi'
-        teklif.save()
-        
-        # 2. Talebe bağlı diğer teklifleri 'beklemede' veya 'red' yapabiliriz, 
-        # ama genelde 'beklemede' kalırlar (yedek olarak).
-        
-        # 3. BAĞLI TALEBİN DURUMUNU GÜNCELLE
+    # --- YENİ EKLENEN KISIM: SİPARİŞ OTOMASYONU ---
+    if yeni_durum == 'onaylandi' and eski_durum != 'onaylandi':
+        # Teklif onaylandığında, bağlı olduğu TALEP "Onaylandı" olsun
         if teklif.talep:
             teklif.talep.durum = 'onaylandi'
-            teklif.talep.onay_tarihi = timezone.now()
             teklif.talep.save()
-            
-    elif yeni_durum == 'beklemede':
-        teklif.durum = 'beklemede'
-        teklif.save()
-        # Eğer onaydan geri çekildiyse, talebi de işlemde statüsüne çek
-        if teklif.talep and teklif.talep.durum == 'onaylandi':
-            teklif.talep.durum = 'islemde'
-            teklif.talep.save()
-            
-    elif yeni_durum == 'reddedildi':
-        teklif.durum = 'reddedildi'
-        teklif.save()
-
+        
+        # Ve otomatik olarak SATINALMA (Sipariş) kaydı oluştur
+        # Eğer zaten varsa (mükerrer olmasın) get_or_create kullanıyoruz
+        SatinAlma.objects.get_or_create(
+            teklif=teklif,
+            defaults={
+                'toplam_miktar': teklif.miktar,
+                'teslim_edilen': 0,
+                'siparis_tarihi': timezone.now()
+            }
+        )
+    # ----------------------------------------------
+    
+    messages.success(request, f"Teklif durumu '{yeni_durum}' olarak güncellendi.")
+    
+    # Geldikleri yere geri gönder
+    referer = request.META.get('HTTP_REFERER')
+    if referer:
+        return redirect(referer)
     return redirect('icmal_raporu')
 
 # ========================================================
@@ -873,6 +880,111 @@ def hizmet_sil(request, pk):
     messages.warning(request, f"🗑️ {isim} listeden silindi.")
     
     return redirect('hizmet_listesi')
+
+@login_required
+def siparis_listesi(request):
+    """
+    Onaylanmış ama henüz tamamı teslim alınmamış siparişlerin listesi.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    # Henüz tamamlanmamış (veya kısmi) siparişleri getir
+    bekleyenler = SatinAlma.objects.exclude(teslimat_durumu='tamamlandi').select_related('teklif__tedarikci', 'teklif__malzeme')
+    
+    # İsterseniz bitmişleri de ayrı bir sekmede göstermek için çekebilirsiniz
+    bitenler = SatinAlma.objects.filter(teslimat_durumu='tamamlandi').order_by('-created_at')[:10]
+
+    return render(request, 'siparis_listesi.html', {
+        'bekleyenler': bekleyenler,
+        'bitenler': bitenler
+    })
+
+@login_required
+def mal_kabul(request, siparis_id):
+    """
+    Bir sipariş için İrsaliye ile Mal Girişi yapma ekranı.
+    GÜNCELLEME: Fazla miktar kontrolü ve Sipariş Loglama eklendi.
+    """
+    if not yetki_kontrol(request.user, ['SAHA_VE_DEPO', 'OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+    depolar = Depo.objects.all()
+
+    if request.method == 'POST':
+        try:
+            gelen_miktar = float(request.POST.get('gelen_miktar'))
+        except ValueError:
+            messages.error(request, "Lütfen geçerli bir sayı giriniz.")
+            return redirect('mal_kabul', siparis_id=siparis.id)
+
+        # --- 1. KONTROL: Fazla Mal Girişi Engeli ---
+        kalan_hak = siparis.kalan_miktar
+        # Küçük küsurat hatalarını önlemek için (float toleransı)
+        if gelen_miktar > (kalan_hak + 0.0001): 
+            messages.error(request, f"⛔ HATA: Siparişten fazlasını alamazsınız! Maksimum alabileceğiniz miktar: {kalan_hak}")
+            return redirect('mal_kabul', siparis_id=siparis.id)
+        # -------------------------------------------
+
+        irsaliye_no = request.POST.get('irsaliye_no')
+        depo_id = request.POST.get('depo_id')
+        tarih = request.POST.get('tarih') or timezone.now()
+        aciklama = request.POST.get('aciklama')
+
+        secilen_depo = Depo.objects.get(id=depo_id)
+        malzeme = siparis.teklif.malzeme
+        
+        if not malzeme:
+             messages.error(request, "Hizmet kalemleri için mal kabulü yapılamaz.")
+             return redirect('siparis_listesi')
+
+        # 2. Hareketi Kaydet (Sipariş Bağlantısıyla Beraber)
+        DepoHareket.objects.create(
+            malzeme=malzeme,
+            depo=secilen_depo,
+            siparis=siparis,  # <-- YENİ: Hareketi siparişe bağlıyoruz
+            islem_turu='giris',
+            miktar=gelen_miktar,
+            tedarikci=siparis.teklif.tedarikci,
+            irsaliye_no=irsaliye_no,
+            tarih=tarih,
+            aciklama=f"Sipariş Kabulü: {aciklama}"
+        )
+
+        # 3. Siparişi Güncelle
+        siparis.teslim_edilen += gelen_miktar
+        siparis.save()
+
+        messages.success(request, f"✅ {gelen_miktar} birim giriş yapıldı. Kalan: {siparis.kalan_miktar}")
+        
+        # Eğer bittiyse listeye dön, bitmediyse devam et
+        if siparis.teslimat_durumu == 'tamamlandi':
+            return redirect('siparis_listesi')
+        else:
+            return redirect('mal_kabul', siparis_id=siparis.id)
+
+    return render(request, 'mal_kabul.html', {'siparis': siparis, 'depolar': depolar})
+
+
+# --- YENİ FONKSİYON: SİPARİŞ GEÇMİŞİ / DETAYI ---
+@login_required
+def siparis_detay(request, siparis_id):
+    """
+    Tamamlanmış veya devam eden bir siparişin geçmiş hareketlerini (Loglarını) gösterir.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+        
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+    
+    # Bu siparişe bağlı depo hareketlerini çekiyoruz
+    hareketler = DepoHareket.objects.filter(siparis=siparis).order_by('-tarih')
+    
+    return render(request, 'siparis_detay.html', {
+        'siparis': siparis,
+        'hareketler': hareketler
+    })
 
 def cikis_yap(request):
     logout(request)

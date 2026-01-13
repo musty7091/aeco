@@ -21,14 +21,18 @@
 <div class="container-fluid py-4" style="max-width: 1400px;">
     
     <div class="row mb-4">
-        <div class="col-md-5 d-flex align-items-center">
+        <div class="col-md-4 d-flex align-items-center">
             <h1 class="h3 mb-0 text-gray-800 fw-bold"><i class="fas fa-boxes me-2"></i> MALZEME & STOK LİSTESİ</h1>
         </div>
-        <div class="col-md-7 text-end">
+        <div class="col-md-8 text-end">
             <a href="/" class="btn btn-secondary me-1">Ana Menü</a>
             
             <a href="{% url 'hizmet_listesi' %}" class="btn btn-info text-white shadow-sm me-1 fw-bold">
                 <i class="fas fa-tools me-1"></i> Hizmet Tanımları
+            </a>
+
+            <a href="{% url 'siparis_listesi' %}" class="btn btn-warning shadow-sm me-1 fw-bold text-dark">
+                <i class="fas fa-shipping-fast me-1"></i> Bekleyen Siparişler
             </a>
 
             <a href="{% url 'malzeme_ekle' %}" class="btn btn-primary shadow-sm fw-bold">
