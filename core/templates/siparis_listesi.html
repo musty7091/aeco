@@ -11,25 +11,19 @@
         .progress-thin { height: 10px; border-radius: 5px; }
         .table-hover tbody tr:hover { background-color: #f1f1f1; }
         .card-header { border-bottom: 0; }
+        .btn-group-sm > .btn, .btn-sm { font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
-<div class="container-fluid py-4" style="max-width: 1400px;">
+<div class="container-fluid py-4" style="max-width: 1500px;">
     
     {% if messages %}
         <div class="row mb-4">
             <div class="col-12">
                 {% for message in messages %}
                     <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm" role="alert">
-                        {% if message.tags == 'success' %}
-                            <i class="fas fa-check-circle me-2"></i>
-                        {% elif message.tags == 'error' %}
-                            <i class="fas fa-exclamation-circle me-2"></i>
-                        {% elif message.tags == 'warning' %}
-                            <i class="fas fa-exclamation-triangle me-2"></i>
-                        {% endif %}
-                        {{ message }}
+                        <i class="fas fa-info-circle me-2"></i> {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 {% endfor %}
@@ -39,19 +33,19 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="h3 mb-0 text-dark fw-bold"><i class="fas fa-shipping-fast me-2 text-primary"></i> SİPARİŞ TAKİBİ & MAL KABUL</h1>
-            <p class="text-muted small mb-0">Onaylanmış satınalmaların teslimat ve ilerleme durumlarını buradan yönetin.</p>
+            <h1 class="h3 mb-0 text-dark fw-bold"><i class="fas fa-shipping-fast me-2 text-primary"></i> SİPARİŞ TAKİBİ & SEVKİYAT</h1>
+            <p class="text-muted small mb-0">Malzeme siparişlerini, fatura girişlerini ve sanal depodan sevkiyatları yönetin.</p>
         </div>
         <div>
             <a href="{% url 'icmal_raporu' %}" class="btn btn-outline-primary me-2"><i class="fas fa-list-ul me-1"></i> İcmal'e Dön</a>
-            <a href="/" class="btn btn-secondary"><i class="fas fa-home me-1"></i> Ana Menü</a>
+            <a href="{% url 'dashboard' %}" class="btn btn-secondary"><i class="fas fa-home me-1"></i> Ana Menü</a>
         </div>
     </div>
 
     <div class="card shadow mb-5 border-0">
         <div class="card-header bg-warning bg-gradient text-dark fw-bold py-3 d-flex justify-content-between align-items-center">
             <span><i class="fas fa-clock me-2"></i> TESLİMAT / İLERLEME BEKLEYENLER (AKTİF)</span>
-            <span class="badge bg-dark text-warning">{{ bekleyenler.count }} Adet</span>
+            <span class="badge bg-dark text-warning">{{ bekleyenler|length }} Adet</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -61,8 +55,8 @@
                             <th class="ps-4">Tedarikçi Firma</th>
                             <th>İş / Malzeme</th>
                             <th class="text-center">Sipariş</th>
-                            <th class="text-center">Gelen</th>
-                            <th class="text-center">Kalan</th>
+                            <th class="text-center">Gelen (Stok)</th>
+                            <th class="text-center">Durum</th>
                             <th style="width: 15%;">Tamamlanma</th>
                             <th class="text-end pe-4">İşlemler</th>
                         </tr>
@@ -78,10 +72,10 @@
                             <td>
                                 {% if siparis.teklif.malzeme %}
                                     <div class="text-primary fw-bold"><i class="fas fa-box me-1"></i> {{ siparis.teklif.malzeme.isim }}</div>
-                                    <div class="small text-muted">Malzeme Alımı</div>
+                                    <div class="small text-muted">Malzeme</div>
                                 {% elif siparis.teklif.is_kalemi %}
                                     <div class="text-danger fw-bold"><i class="fas fa-tools me-1"></i> {{ siparis.teklif.is_kalemi.isim }}</div>
-                                    <div class="small text-muted">Hizmet / Taşeron</div>
+                                    <div class="small text-muted">Hizmet</div>
                                 {% else %}
                                     -
                                 {% endif %}
@@ -97,8 +91,22 @@
                             <td class="text-center text-success fw-bold">
                                 {{ siparis.teslim_edilen|floatformat:0 }}
                             </td>
-                            <td class="text-center text-danger fw-bold bg-light">
-                                {{ siparis.kalan_miktar|floatformat:0 }}
+                            
+                            <td class="text-center">
+                                {% if siparis.sanal_depoda_bekleyen > 0 %}
+                                    <span class="badge bg-warning text-dark border border-dark">
+                                        <i class="fas fa-warehouse me-1"></i> SANAL DEPODA
+                                    </span>
+                                    <div class="small text-muted mt-1 fw-bold">
+                                        {{ siparis.sanal_depoda_bekleyen|floatformat:0 }} Bekliyor
+                                    </div>
+                                {% elif siparis.kalan_miktar > 0 %}
+                                    <span class="badge bg-secondary">
+                                        {{ siparis.kalan_miktar|floatformat:0 }} Eksik
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-info">İşlemde</span>
+                                {% endif %}
                             </td>
 
                             <td>
@@ -114,20 +122,33 @@
                             </td>
 
                             <td class="text-end pe-4">
-                                <a href="{% url 'siparis_detay' siparis.id %}" class="btn btn-sm btn-outline-info me-1" title="Geçmiş Hareketleri Gör">
-                                    <i class="fas fa-history"></i>
-                                </a>
-                                
-                                <a href="{% url 'fatura_girisi' siparis.id %}" class="btn btn-sm btn-success fw-bold shadow-sm">
-                                    <i class="fas fa-file-invoice me-1"></i> Fatura Gir
-                                </a>
-                                <a href="{% url 'depo_transfer' %}" class="btn btn-outline-dark me-2">
-                                    <i class="fas fa-exchange-alt me-1"></i> Transfer
-                                </a>
+                                <div class="btn-group" role="group">
+                                    {% if siparis.kalan_fatura_miktar > 0 %}
+                                    <a href="{% url 'fatura_girisi' siparis.id %}" class="btn btn-sm btn-success text-white fw-bold" title="Fatura Gir">
+                                        <i class="fas fa-file-invoice-dollar"></i> Fatura
+                                    </a>
+                                    {% endif %}
+
+                                    {% if siparis.sanal_depoda_bekleyen > 0 %}
+                                    <a href="{% url 'depo_transfer' %}?siparis_id={{ siparis.id }}" class="btn btn-sm btn-primary fw-bold" title="Sanal Depodan Çek">
+                                        <i class="fas fa-truck-loading me-1"></i> SEVK ET
+                                    </a>
+                                    {% endif %}
+
+                                    {% if siparis.teklif.malzeme %}
+                                    <a href="{% url 'stok_hareketleri' siparis.teklif.malzeme.id %}" class="btn btn-sm btn-secondary" title="Stok Geçmişi">
+                                        <i class="fas fa-history"></i>
+                                    </a>
+                                    {% endif %}
+                                    
+                                    <a href="{% url 'siparis_detay' siparis.id %}" class="btn btn-sm btn-outline-dark" title="Detay">
+                                        <i class="fas fa-search"></i>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="7" class="text-center py-5 text-muted h5"><i class="fas fa-check-circle text-success me-2"></i>Şu an bekleyen açık sipariş yok.</td></tr>
+                        <tr><td colspan="7" class="text-center py-5 text-muted h5"><i class="fas fa-check-circle text-success me-2"></i>Bekleyen veya sevkiyatı süren sipariş yok.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -137,7 +158,7 @@
 
     <div class="card shadow border-0" style="border-top: 5px solid #198754;">
         <div class="card-header bg-white text-success fw-bold py-3">
-            <i class="fas fa-archive me-2"></i> TAMAMLANAN SİPARİŞ GEÇMİŞİ
+            <i class="fas fa-archive me-2"></i> TAMAMLANAN SİPARİŞ GEÇMİŞİ (FİZİKSEL TESLİM ALINANLAR)
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -148,7 +169,7 @@
                             <th>Malzeme</th>
                             <th>Tarih</th>
                             <th class="text-center">Miktar</th>
-                            <th class="text-center">Konum / Durum</th>
+                            <th class="text-center">Durum</th>
                             <th class="text-end pe-4">İşlemler</th>
                         </tr>
                     </thead>
@@ -167,47 +188,23 @@
                             
                             <td class="text-center fw-bold text-success">
                                 {{ siparis.teslim_edilen|floatformat:0 }}
-                                <span class="small fw-normal text-muted">
-                                    {% if siparis.teklif.malzeme %}{{ siparis.teklif.malzeme.get_birim_display }}
-                                    {% else %}{{ siparis.teklif.is_kalemi.get_birim_display }}{% endif %}
-                                </span>
                             </td>
 
                             <td class="text-center">
-                                {% with son_fatura=siparis.faturalar.last %}
-                                    
-                                    {% if son_fatura and son_fatura.depo and son_fatura.depo.is_sanal and siparis.kalan_sevk_hakki > 0 %}
-                                        <span class="badge bg-warning text-dark border border-warning">
-                                            <i class="fas fa-globe me-1"></i> SANAL DEPO
-                                        </span>
-                                        <div style="font-size: 0.7rem;" class="text-muted mt-1">({{ siparis.kalan_sevk_hakki|floatformat:0 }} Bekliyor)</div>
-                                    
-                                    {% elif siparis.kalan_sevk_hakki <= 0 %}
-                                        <span class="badge bg-light text-secondary border">
-                                            <i class="fas fa-check-double me-1"></i> MERKEZ/ŞANTİYE
-                                        </span>
-                                        <div style="font-size: 0.7rem;" class="text-success mt-1 fw-bold">Sevkiyat Tamamlandı</div>
-
-                                    {% else %}
-                                        <span class="badge bg-light text-secondary border">
-                                            <i class="fas fa-warehouse me-1"></i> {{ son_fatura.depo.isim }}
-                                        </span>
-                                    {% endif %}
-                                {% endwith %}
+                                <span class="badge bg-success"><i class="fas fa-check-double"></i> Tamamlandı</span>
                             </td>
 
                             <td class="text-end pe-4">
-                                {% with son_fatura=siparis.faturalar.last %}
-                                    {% if son_fatura and son_fatura.depo and son_fatura.depo.is_sanal and siparis.kalan_sevk_hakki > 0 %}
-                                        <a href="{% url 'depo_transfer' %}?siparis_id={{ siparis.id }}" class="btn btn-sm btn-primary fw-bold shadow-sm me-1">
-                                            <i class="fas fa-truck-loading me-1"></i> SEVK ET
+                                <div class="btn-group" role="group">
+                                    {% if siparis.teklif.malzeme %}
+                                        <a href="{% url 'stok_hareketleri' siparis.teklif.malzeme.id %}" class="btn btn-sm btn-outline-secondary" title="Geçmiş">
+                                            <i class="fas fa-history"></i>
                                         </a>
                                     {% endif %}
-                                {% endwith %}
-
-                                <a href="{% url 'siparis_detay' siparis.id %}" class="btn btn-sm btn-outline-secondary" title="Detay">
-                                    <i class="fas fa-search"></i>
-                                </a>
+                                    <a href="{% url 'siparis_detay' siparis.id %}" class="btn btn-sm btn-outline-dark" title="Detay">
+                                        <i class="fas fa-search"></i>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         {% empty %}

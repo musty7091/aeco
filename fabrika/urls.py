@@ -48,14 +48,15 @@ urlpatterns = [
     path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
     path('siparisler/', views.siparis_listesi, name='siparis_listesi'),
     path('mal-kabul/<int:siparis_id>/', views.mal_kabul, name='mal_kabul'),
-    path('siparisler/', views.siparis_listesi, name='siparis_listesi'),
-    path('mal-kabul/<int:siparis_id>/', views.mal_kabul, name='mal_kabul'),
     path('siparis/detay/<int:siparis_id>/', views.siparis_detay, name='siparis_detay'),
     path('fatura-gir/<int:siparis_id>/', views.fatura_girisi, name='fatura_girisi'),
     path('fatura/sil/<int:fatura_id>/', views.fatura_sil, name='fatura_sil'),
     path('depo/transfer/', views.depo_transfer, name='depo_transfer'),
     path('api/depo-stok/', views.get_depo_stok, name='get_depo_stok'),
     path('debug/stok/<int:malzeme_id>/', views.stok_rontgen),
+    path('stok/gecmis/<int:malzeme_id>/', views.stok_hareketleri, name='stok_hareketleri'),
+    path('rapor/envanter/', views.envanter_raporu, name='envanter_raporu'),
+    
     
     # 8. Yazdırma & Çıktı
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),

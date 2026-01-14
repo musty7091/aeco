@@ -11,7 +11,15 @@ from .models import (
 class DepoTransferForm(forms.ModelForm):
     class Meta:
         model = DepoTransfer
-        fields = '__all__'
+        fields = ['kaynak_depo', 'hedef_depo', 'malzeme', 'miktar', 'aciklama', 'tarih']
+        widgets = {
+            'kaynak_depo': forms.Select(attrs={'class': 'form-select'}),
+            'hedef_depo': forms.Select(attrs={'class': 'form-select'}),
+            'malzeme': forms.Select(attrs={'class': 'form-select select2'}), # Arama yapılabilir olsun
+            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Transfer Miktarı'}),
+            'aciklama': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Şantiyeye Sevk'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        }
 
     def __init__(self, *args, **kwargs):
         super(DepoTransferForm, self).__init__(*args, **kwargs)
@@ -19,9 +27,9 @@ class DepoTransferForm(forms.ModelForm):
         sanal_depo = Depo.objects.filter(is_sanal=True).first()
         fiziksel_depo = Depo.objects.filter(is_sanal=False).first()
         
-        if sanal_depo:
+        if sanal_depo and not self.initial.get('kaynak_depo'):
             self.fields['kaynak_depo'].initial = sanal_depo
-        if fiziksel_depo:
+        if fiziksel_depo and not self.initial.get('hedef_depo'):
             self.fields['hedef_depo'].initial = fiziksel_depo
 
     def clean(self):
@@ -31,22 +39,26 @@ class DepoTransferForm(forms.ModelForm):
         malzeme = cleaned_data.get('malzeme')
         miktar = cleaned_data.get('miktar')
 
-        if kaynak and hedef and kaynak == hedef:
+        if not (kaynak and hedef and malzeme and miktar):
+            return cleaned_data
+
+        if kaynak == hedef:
             raise forms.ValidationError("Kaynak ve Hedef depo aynı olamaz.")
 
-        if kaynak and malzeme and miktar:
-            try:
-                mevcut_stok = malzeme.depo_stogu(kaynak.id)
-                if mevcut_stok < miktar:
-                    raise forms.ValidationError(
-                        f"Hata: Kaynak depoda yeterli stok yok! Mevcut: {mevcut_stok}"
-                    )
-            except AttributeError:
-                pass
+        # Eksi Stok Kontrolü: Olmayan malı gönderemezsin
+        try:
+            mevcut_stok = malzeme.depo_stogu(kaynak.id)
+            if mevcut_stok < miktar:
+                raise forms.ValidationError(
+                    f"Hata: Kaynak depoda ({kaynak.isim}) yeterli stok yok! Mevcut: {mevcut_stok}"
+                )
+        except AttributeError:
+            pass
+            
         return cleaned_data
 
 # ========================================================
-# 2. TEKLİF GİRİŞ FORMU (GÜNCELLENDİ)
+# 2. TEKLİF GİRİŞ FORMU
 # ========================================================
 
 class TeklifForm(forms.ModelForm):
@@ -166,7 +178,7 @@ class FaturaGirisForm(forms.ModelForm):
         model = Fatura
         fields = ['fatura_no', 'tarih', 'depo', 'miktar', 'tutar', 'dosya']
         widgets = {
-            'fatura_no': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'ABC-2024...'}),
+            'fatura_no': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fatura No'}),
             'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'depo': forms.Select(attrs={'class': 'form-select'}),
             'miktar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
@@ -176,5 +188,6 @@ class FaturaGirisForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         super(FaturaGirisForm, self).__init__(*args, **kwargs)
-        # Depo seçimi zorunlu olmasın (Hizmet faturaları için depo gerekmez)
-        self.fields['depo'].required = False
+        # Depo seçimi ZORUNLU. Fatura girildiği an stok oluşacak.
+        self.fields['depo'].required = True
+        self.fields['depo'].empty_label = "Depo Seçiniz (Zorunlu)"

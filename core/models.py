@@ -8,7 +8,6 @@ from django.core.exceptions import ValidationError
 # SABİTLER (GLOBAL)
 # ==========================================
 
-# GÜNCELLENMİŞ KDV ORANLARI (KKTC Standartları - Özel Matrah Yok)
 KDV_ORANLARI = [
     (0, '%0'), 
     (5, '%5'), 
@@ -37,13 +36,11 @@ class IsKalemi(models.Model):
         ('adam_saat', 'Adam/Saat'), ('goturu', 'Götürü (Toplu)'),
     ]
     
-    # Kategori şimdilik opsiyonel olsun veya sabit bir kategori seçelim
     kategori = models.ForeignKey(Kategori, on_delete=models.CASCADE, related_name='kalemler', verbose_name="Kategori")
     isim = models.CharField(max_length=200, verbose_name="İş Kalemi Adı")
     hedef_miktar = models.FloatField(default=1, verbose_name="Yaklaşık Metraj")
     birim = models.CharField(max_length=20, choices=BIRIMLER, default='adet')
     
-    # YENİ EKLENEN ALANLAR
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
     aciklama = models.TextField(blank=True, verbose_name="İş Tanımı / Teknik Şartname")
     
@@ -86,7 +83,6 @@ class Depo(models.Model):
         verbose_name_plural = "Depo Tanımları"
 
 class Malzeme(models.Model):
-    # Kategori seçenekleri
     KATEGORILER = [
         ('genel', 'Genel Malzeme'),
         ('hirdavat', 'Hırdavat / Nalburiye'),
@@ -98,22 +94,13 @@ class Malzeme(models.Model):
     ]
     
     isim = models.CharField(max_length=200, verbose_name="Malzeme Adı (Örn: Ø14 Demir)")
-    
-    # YENİ ALANLAR:
     kategori = models.CharField(max_length=20, choices=KATEGORILER, default='genel', verbose_name="Malzeme Grubu")
     marka = models.CharField(max_length=100, blank=True, verbose_name="Marka / Model", help_text="Örn: Bosch, Vitra vb.")
-    
     birim = models.CharField(max_length=20, choices=IsKalemi.BIRIMLER, default='adet')
-    
-    # YENİ ALAN: KDV (Global sabiti kullanıyor)
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
-    
     kritik_stok = models.FloatField(default=10, verbose_name="Kritik Stok Uyarı Limiti")
-    
-    # YENİ ALAN: DETAYLI AÇIKLAMA
     aciklama = models.TextField(blank=True, verbose_name="Teknik Özellikler / Notlar")
     
-    # --- STOK HESABI ---
     @property
     def stok(self):
         giren = self.hareketler.filter(islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
@@ -155,7 +142,6 @@ class MalzemeTalep(models.Model):
 
     talep_eden = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Talep Eden")
     
-    # HİBRİT YAPI
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
     is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="İş Kalemi (Hizmet/Taşeron)")
     
@@ -200,10 +186,8 @@ class Teklif(models.Model):
         ('EUR', '€ Euro'), ('GBP', '£ İngiliz Sterlini'),
     ]
     
-    # YENİ ALAN: Talep bağlantısı
     talep = models.ForeignKey(MalzemeTalep, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="İlgili Talep")
     
-    # Hibrit Yapı
     is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="İş Kalemi (Taşeronluk)")
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
     
@@ -216,7 +200,6 @@ class Teklif(models.Model):
     kur_degeri = models.DecimalField(max_digits=10, decimal_places=4, default=1.0000, verbose_name="İşlem Kuru")
     
     kdv_dahil_mi = models.BooleanField(default=False, verbose_name="Bu fiyata KDV Dahil mi?")
-    # Burada global sabiti kullanıyoruz
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="KDV Oranı")
     
     teklif_dosyasi = models.FileField(upload_to='teklifler/', blank=True, null=True, verbose_name="Teklif PDF/Resim")
@@ -282,22 +265,23 @@ class SatinAlma(models.Model):
         ('tamamlandi', '🟢 Tamamlandı (Hepsi Geldi)'),
     ]
     
-    # Teklif ile birebir bağ
     teklif = models.OneToOneField('Teklif', on_delete=models.CASCADE, related_name='satinalma_donusumu', verbose_name="İlgili Teklif")
     
-    # Süreç Takibi
     siparis_tarihi = models.DateField(default=timezone.now, verbose_name="Sipariş Tarihi")
     teslimat_durumu = models.CharField(max_length=20, choices=TESLIMAT_DURUMLARI, default='bekliyor')
     
     # Miktar Takibi
     toplam_miktar = models.FloatField(default=0, verbose_name="Sipariş Edilen Toplam")
-    teslim_edilen = models.FloatField(default=0, verbose_name="Şuana Kadar Gelen (Fatura)")
+    
+    # İki ayrı sayaç
+    teslim_edilen = models.FloatField(default=0, verbose_name="Depoya Giren (Fiziksel)")
+    faturalanan_miktar = models.FloatField(default=0, verbose_name="Faturası Gelen (Finansal)")
     
     aciklama = models.TextField(blank=True, verbose_name="Notlar")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Otomatik Durum Güncelleme
+        # Durum güncellemesi
         if self.teslim_edilen == 0:
             self.teslimat_durumu = 'bekliyor'
         elif 0 < self.teslim_edilen < self.toplam_miktar:
@@ -308,39 +292,30 @@ class SatinAlma(models.Model):
         super(SatinAlma, self).save(*args, **kwargs)
 
     @property
-    def kalan_sevk_hakki(self):
-        """
-        Fatura ile giren miktardan, transfer ile çıkan miktarı çıkarır.
-        Hem eski ('depohareket_set') hem yeni ('hareketler') isimlendirmeyi destekler.
-        """
-        try:
-            # 1. Önce yeni yöntemle bulmaya çalış
-            hareketler_listesi = self.hareketler.filter(islem_turu='cikis')
-        except AttributeError:
-            # 2. Hata verirse eski (standart) yöntemle bulmaya çalış
-            hareketler_listesi = self.depohareket_set.filter(islem_turu='cikis')
-        
-        # Toplama İşlemi
-        toplam_sevk = hareketler_listesi.aggregate(toplam=Sum('miktar'))['toplam']
-        
-        # Eğer hiç hareket yoksa (None ise) 0 kabul et
-        if toplam_sevk is None:
-            toplam_sevk = 0
-        
-        # Hesaplama: Fatura Girişi - Sevk Edilen
-        kalan = self.teslim_edilen - toplam_sevk
-        return max(kalan, 0)
-    
-    @property
     def kalan_miktar(self):
-        """Tedarikçiden daha gelmesi gereken (Faturası kesilmemiş) miktar"""
+        """Depoya daha girmesi gereken miktar"""
         return max(self.toplam_miktar - self.teslim_edilen, 0)
+
+    @property
+    def kalan_fatura_miktar(self):
+        """Faturası henüz gelmemiş miktar"""
+        return max(self.toplam_miktar - self.faturalanan_miktar, 0)
 
     @property
     def tamamlanma_yuzdesi(self):
         if self.toplam_miktar == 0: return 0
         yuzde = (self.teslim_edilen / self.toplam_miktar) * 100
-        return min(yuzde, 100) # %100'ü geçmesin
+        return min(yuzde, 100)
+
+    # --- YENİ EKLENEN KRİTİK ÖZELLİK ---
+    @property
+    def sanal_depoda_bekleyen(self):
+        """
+        Bu siparişin Sanal Depolara girip de henüz oradan çıkmamış (Sevk edilmemiş) miktarı.
+        """
+        girisler = self.depo_hareketleri.filter(depo__is_sanal=True, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        cikislar = self.depo_hareketleri.filter(depo__is_sanal=True, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or 0
+        return max(girisler - cikislar, 0)
 
     def __str__(self):
         return f"{self.teklif.tedarikci} - {self.teklif.malzeme.isim} (Kalan: {self.kalan_miktar})"
@@ -463,22 +438,20 @@ class DepoHareket(models.Model):
 
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='hareketler')
     depo = models.ForeignKey(Depo, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="İlgili Depo")
+    # 'SatinAlma' string referansı, model sırasından kaynaklı hatayı önler
     siparis = models.ForeignKey('SatinAlma', on_delete=models.SET_NULL, null=True, blank=True, related_name='depo_hareketleri', verbose_name="Bağlı Sipariş")
     
     tarih = models.DateField(default=timezone.now)
     islem_turu = models.CharField(max_length=10, choices=ISLEM_TURLERI)
     miktar = models.FloatField(verbose_name="Miktar")
+    
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
     irsaliye_no = models.CharField(max_length=50, blank=True, verbose_name="İrsaliye No")
     aciklama = models.CharField(max_length=300, blank=True, verbose_name="Açıklama / Kullanılan Yer")
+    
     iade_sebebi = models.CharField(max_length=200, blank=True, verbose_name="Red Sebebi")
     iade_aksiyonu = models.CharField(max_length=20, choices=IADE_AKSIYONLARI, default='yok', verbose_name="İade Sonucu")
     kanit_gorseli = models.ImageField(upload_to='depo_kanit/', blank=True, null=True, verbose_name="Hasar/Kanıt Fotoğrafı")
-    
-    tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
-    irsaliye_no = models.CharField(max_length=50, blank=True, verbose_name="İrsaliye No")
-    aciklama = models.CharField(max_length=300, blank=True, verbose_name="Açıklama / Kullanılan Yer")
-    
 
     def __str__(self):
         return f"{self.get_islem_turu_display()} - {self.malzeme.isim}"
@@ -505,20 +478,29 @@ class DepoTransfer(models.Model):
         super().save(*args, **kwargs)
         
         if is_new:
+            # Views.py'dan geçici olarak iliştirilen sipariş bilgisini al
+            # Eğer normal transferse bu boş (None) olur, sorun çıkmaz.
+            siparis_obj = getattr(self, 'bagli_siparis', None)
+
+            # 1. Kaynak Depo ÇIKIŞI
             DepoHareket.objects.create(
                 malzeme=self.malzeme,
                 depo=self.kaynak_depo,
                 tarih=self.tarih,
                 islem_turu='cikis',
                 miktar=self.miktar,
+                siparis=siparis_obj, # <--- ARTIK SİPARİŞİ TANIYOR
                 aciklama=f"TRANSFER ÇIKIŞI -> {self.hedef_depo.isim} | {self.aciklama}"
             )
+            
+            # 2. Hedef Depo GİRİŞİ
             DepoHareket.objects.create(
                 malzeme=self.malzeme,
                 depo=self.hedef_depo,
                 tarih=self.tarih,
                 islem_turu='giris',
                 miktar=self.miktar,
+                siparis=siparis_obj, # <--- ARTIK SİPARİŞİ TANIYOR
                 aciklama=f"TRANSFER GİRİŞİ <- {self.kaynak_depo.isim} | {self.aciklama}"
             )
 
@@ -564,25 +546,21 @@ class Hakedis(models.Model):
     class Meta:
         verbose_name_plural = "Taşeron Hakedişleri"
 
-    # core/models.py (Mevcut dosyanıza ekleyin)
-
-# ... (Mevcut modeller yukarıda) ...
 
 class Fatura(models.Model):
     """
     Tedarikçiden gelen resmi faturanın sisteme işlendiği model.
-    Bu model hem FİNANS (Borçlanma) hem de DEPO (Stok Girişi) tetikleyicisidir.
+    ARTIK OTOMATİK STOK HAREKETİ YARATMAZ. Sadece finansal kayıttır.
+    Otomatik stok, views.py içinde checkbox kontrolü ile yapılır.
     """
     satinalma = models.ForeignKey(SatinAlma, on_delete=models.CASCADE, related_name='faturalar', verbose_name="İlgili Sipariş")
     
     fatura_no = models.CharField(max_length=50, verbose_name="Fatura No")
     tarih = models.DateField(default=timezone.now, verbose_name="Fatura Tarihi")
     
-    # Fatura Detayları (Tekliften otomatik gelecek ama değiştirilebilir)
     miktar = models.FloatField(verbose_name="Fatura Edilen Miktar")
     tutar = models.FloatField(verbose_name="Fatura Tutarı (KDV Dahil)")
     
-    # Stok Hareketi İçin
     depo = models.ForeignKey(Depo, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Giriş Yapılacak Depo")
     
     dosya = models.FileField(upload_to='faturalar/', blank=True, null=True, verbose_name="Fatura Görseli/PDF")
@@ -592,26 +570,10 @@ class Fatura(models.Model):
         is_new = self.pk is None
         super(Fatura, self).save(*args, **kwargs)
         
-        # Fatura İLK KEZ kaydediliyorsa otomatik işlemler yap:
+        # Sadece faturalanan miktarı güncelle (Stok/Teslimat'a dokunma!)
         if is_new:
-            # 1. STOK GİRİŞİ YAP (Eğer malzeme ise ve depo seçildiyse)
-            if self.satinalma.teklif.malzeme and self.depo:
-                DepoHareket.objects.create(
-                    malzeme=self.satinalma.teklif.malzeme,
-                    depo=self.depo,
-                    siparis=self.satinalma,
-                    # Hareketi faturaya bağlayabiliriz veya açıklamaya yazabiliriz
-                    islem_turu='giris',
-                    miktar=self.miktar,
-                    tedarikci=self.satinalma.teklif.tedarikci,
-                    irsaliye_no=f"FATURA-{self.fatura_no}", # İrsaliye yerine Fatura Ref
-                    tarih=self.tarih,
-                    aciklama=f"Fatura Girişi: {self.fatura_no}"
-                )
-            
-            # 2. SİPARİŞ DURUMUNU GÜNCELLE
-            self.satinalma.teslim_edilen += self.miktar
-            self.satinalma.save() # SatinAlma modelindeki save metodu durumu (tamamlandı/kısmi) otomatik ayarlar.
+            self.satinalma.faturalanan_miktar += self.miktar
+            self.satinalma.save()
 
     def __str__(self):
         return f"Fatura #{self.fatura_no} - {self.satinalma.teklif.tedarikci}"

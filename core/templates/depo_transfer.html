@@ -12,8 +12,9 @@
 
     {% if messages %}
         {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} shadow-sm">
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm" role="alert">
                 <i class="fas fa-info-circle me-2"></i> {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         {% endfor %}
     {% endif %}
@@ -37,22 +38,24 @@
     {% if siparis %}
     <div class="card shadow-sm border-start border-5 border-primary mb-4">
         <div class="card-body">
-            <h5 class="fw-bold text-primary mb-3"><i class="fas fa-truck-loading me-2"></i> SEVKİYAT TAKİBİ: {{ siparis.teklif.tedarikci.firma_unvani }}</h5>
+            <h5 class="fw-bold text-primary mb-3">
+                <i class="fas fa-truck-loading me-2"></i> SEVKİYAT TAKİBİ: {{ siparis.teklif.tedarikci.firma_unvani }}
+            </h5>
             <div class="row text-center">
                 <div class="col-md-4 border-end">
-                    <small class="text-muted text-uppercase fw-bold">Toplam Fatura Girişi</small>
-                    <div class="fs-4 fw-bold">{{ toplam_faturalanan }}</div>
-                    <small class="text-muted">Sanal Depoya Giren</small>
+                    <small class="text-muted text-uppercase fw-bold">Toplam Faturalanan (Stok)</small>
+                    <div class="fs-4 fw-bold">{{ toplam_faturalanan|floatformat:0 }}</div>
+                    <small class="text-muted">Depoya Giren</small>
                 </div>
                 <div class="col-md-4 border-end">
                     <small class="text-muted text-uppercase fw-bold">Bugüne Kadar Sevk Edilen</small>
-                    <div class="fs-4 fw-bold text-success">{{ toplam_sevk_edilen }}</div>
-                    <small class="text-muted">Şantiyeye Giden</small>
+                    <div class="fs-4 fw-bold text-success">{{ toplam_sevk_edilen|floatformat:0 }}</div>
+                    <small class="text-muted">Transfer Yapılan</small>
                 </div>
                 <div class="col-md-4">
                     <small class="text-muted text-uppercase fw-bold">Kalan Sevk Hakkı</small>
                     <div class="fs-4 fw-bold {% if kalan_sevk_hakki <= 0 %}text-danger{% else %}text-warning{% endif %}">
-                        {{ kalan_sevk_hakki }}
+                        {{ kalan_sevk_hakki|floatformat:0 }}
                     </div>
                     {% if kalan_sevk_hakki <= 0 %}
                         <span class="badge bg-success">SEVKİYAT TAMAMLANDI ✅</span>
@@ -119,14 +122,14 @@
                             {% if siparis %}
                             <div class="text-end border-start ps-3">
                                 <small class="text-uppercase fw-bold text-muted d-block">Siparişten Kalan</small>
-                                <span class="fs-5 fw-bold text-primary">{{ kalan_sevk_hakki }}</span>
+                                <span class="fs-5 fw-bold text-primary">{{ kalan_sevk_hakki|floatformat:0 }}</span>
                             </div>
                             {% endif %}
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">Açıklama</label>
-                            <textarea name="aciklama" class="form-control" rows="2" placeholder="Örn: 2. Parti sevkiyat..."></textarea>
+                            {{ form.aciklama }}
                         </div>
 
                         <div class="d-grid gap-2 mt-4">
@@ -139,7 +142,11 @@
                                 <button type="button" id="btnKaydet" class="btn btn-primary btn-lg fw-bold" onclick="formuGonder()">
                                     <i class="fas fa-save me-2"></i> KAYDET VE SEVK ET
                                 </button>
-                                <a href="{% url 'siparis_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                                {% if siparis %}
+                                    <a href="{% url 'siparis_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                                {% else %}
+                                    <a href="{% url 'stok_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                                {% endif %}
                             {% endif %}
                         </div>
                     </form>
@@ -149,7 +156,7 @@
         </div>
     </div>
 
-    {% if siparis %}
+    {% if siparis and gecmis_hareketler %}
     <div class="row justify-content-center mt-5">
         <div class="col-lg-10">
             <div class="card shadow border-0">
@@ -189,7 +196,6 @@
 
 <script>
     // 1. GÜVENLİ FORM GÖNDERME FONKSİYONU
-    // Bu fonksiyon butona tıklandığında çalışır, butonu kilitler ve formu MANUEL gönderir.
     function formuGonder() {
         var btn = document.getElementById('btnKaydet');
         var form = document.getElementById('transferForm');
@@ -202,7 +208,7 @@
         form.submit();
     }
 
-    // 2. STOK SORGULAMA İŞLEMLERİ
+    // 2. STOK SORGULAMA İŞLEMLERİ (AJAX)
     document.addEventListener('DOMContentLoaded', function() {
         const kaynakSelect = document.getElementById('id_kaynak_depo');
         const malzemeSelect = document.getElementById('id_malzeme');
@@ -214,11 +220,16 @@
             const malzemeId = malzemeSelect.value;
 
             if (depoId && malzemeId) {
+                // API'ye sorgu at
                 fetch(`/api/depo-stok/?depo_id=${depoId}&malzeme_id=${malzemeId}`)
                     .then(response => response.json())
                     .then(data => {
                         mevcutSpan.innerText = parseFloat(data.stok) || 0;
                         stokKarti.style.display = "flex";
+                    })
+                    .catch(err => {
+                        console.error("Stok bilgisi alınamadı:", err);
+                        stokKarti.style.display = "none";
                     });
             } else {
                 stokKarti.style.display = "none";
@@ -229,7 +240,7 @@
             kaynakSelect.addEventListener('change', stokSorgula);
             malzemeSelect.addEventListener('change', stokSorgula);
             
-            // Sayfa açıldığında değerler doluysa hemen sorgula
+            // Sayfa açıldığında değerler doluysa hemen sorgula (Siparişten gelindiğinde)
             if (kaynakSelect.value && malzemeSelect.value) {
                 stokSorgula();
             }
