@@ -128,10 +128,19 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Python'dan gelen kur verisi (JSON formatında)
+        // ---------------------------------------------------------
+        // 1. VERİLERİ AL (Python'dan gelen JSON veriler)
+        // ---------------------------------------------------------
         const kurlar = {{ kurlar_json|safe }};
         
-        // Elementler
+        // Yeni Eklenenler: Malzeme ve Hizmetlerin KDV haritası
+        // Eğer veri yoksa boş obje {} olarak başlatıyoruz hatayı önlemek için.
+        const malzemeKdvMap = {{ malzeme_kdv_json|default:"{}"|safe }}; 
+        const hizmetKdvMap = {{ hizmet_kdv_json|default:"{}"|safe }};   
+
+        // ---------------------------------------------------------
+        // 2. DOM ELEMENTLERİNİ SEÇ
+        // ---------------------------------------------------------
         const miktarInput = document.getElementById('id_miktar');
         const fiyatInput = document.getElementById('id_birim_fiyat');
         const paraSelect = document.getElementById('id_para_birimi');
@@ -145,36 +154,78 @@
         const tlDiv = document.getElementById('tlKarsiligi');
         const kurBadge = document.getElementById('kurBilgisi');
 
-        // --- 1. OTOMATİK HESAPLAMA ---
+        // ---------------------------------------------------------
+        // 3. FONKSİYON: OTOMATİK KDV GÜNCELLEME (YENİ)
+        // ---------------------------------------------------------
+        function kdvGuncelle() {
+            let secilenId;
+            let yeniKdv = null;
+
+            // A) Eğer Malzeme Seçiliyse
+            if (!malzemeSelect.disabled && malzemeSelect.value) {
+                secilenId = parseInt(malzemeSelect.value);
+                // Haritadan bu ID'ye karşılık gelen KDV'yi bul
+                if (malzemeKdvMap[secilenId] !== undefined) {
+                    yeniKdv = malzemeKdvMap[secilenId];
+                }
+            } 
+            // B) Eğer Hizmet Seçiliyse
+            else if (!isKalemiSelect.disabled && isKalemiSelect.value) {
+                secilenId = parseInt(isKalemiSelect.value);
+                if (hizmetKdvMap[secilenId] !== undefined) {
+                    yeniKdv = hizmetKdvMap[secilenId];
+                }
+            }
+
+            // C) Eğer geçerli bir KDV oranı bulduysak kutuyu güncelle
+            if (yeniKdv !== null) {
+                kdvOranSelect.value = yeniKdv;
+                
+                // Görsel Efekt: Kullanıcı değiştiğini fark etsin (Sarı yanıp sönme)
+                kdvOranSelect.style.backgroundColor = "#fff3cd"; 
+                kdvOranSelect.style.transition = "background-color 0.5s";
+                setTimeout(() => { 
+                    kdvOranSelect.style.backgroundColor = ""; 
+                }, 600);
+            }
+            
+            // Fiyatı yeni KDV ile tekrar hesapla
+            hesapla();
+        }
+
+        // ---------------------------------------------------------
+        // 4. FONKSİYON: HESAPLAMA (GÜNCELLENMİŞ)
+        // ---------------------------------------------------------
         function hesapla() {
             let miktar = parseFloat(miktarInput.value) || 0;
             let birimFiyat = parseFloat(fiyatInput.value) || 0;
             let kdvOran = parseFloat(kdvOranSelect.value) || 0;
-            let paraBirimi = paraSelect.options[paraSelect.selectedIndex].text.split(' ')[0]; // TRY, USD...
-            let paraKodu = paraSelect.value; // TRY, USD...
+            
+            let paraBirimi = paraSelect.options[paraSelect.selectedIndex].text.split(' ')[0]; 
+            let paraKodu = paraSelect.value; 
 
-            // Güncel Kuru Bul
+            // Kuru Bul
             let aktifKur = kurlar[paraKodu] || 1.0;
             kurBadge.innerText = `1 ${paraKodu} = ${aktifKur.toFixed(4)} ₺`;
 
-            // KDV ve Toplam Hesabı
+            // Hesaplama Mantığı
             let hamTutar = miktar * birimFiyat;
-            let kdvTutar = 0;
             let genelToplam = 0;
 
             if (kdvDahilCheck.checked) {
-                // KDV Dahil ise, direkt çarparız
+                // KDV Dahil ise toplam direkt girilen tutardır (Birim Fiyat * Miktar)
                 genelToplam = hamTutar;
             } else {
-                // KDV Hariç ise üstüne ekleriz
-                kdvTutar = hamTutar * (kdvOran / 100);
+                // KDV Hariç ise üzerine ekle
+                // Özel Matrah (-1) ise KDV 0 gibi davranır
+                let oran = (kdvOran === -1) ? 0 : kdvOran;
+                let kdvTutar = hamTutar * (oran / 100);
                 genelToplam = hamTutar + kdvTutar;
             }
 
-            // Ekrana Yazdır (Kendi Para Birimi)
+            // Ekrana Yazdır
             toplamDiv.innerHTML = genelToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + paraBirimi;
             
-            // Ekrana Yazdır (TL Karşılığı)
             if (paraKodu !== 'TRY') {
                 let tlKarsiligi = genelToplam * aktifKur;
                 tlDiv.innerHTML = `(Yaklaşık: ${tlKarsiligi.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL)`;
@@ -184,36 +235,58 @@
             }
         }
 
-        // --- 2. KİLİTLEME MEKANİZMASI ---
+        // ---------------------------------------------------------
+        // 5. FONKSİYON: KİLİTLEME (TOGGLE)
+        // ---------------------------------------------------------
         function toggleInputs() {
+            // Malzeme seçiliyse Hizmeti kilitle
             if (malzemeSelect.value) {
                 isKalemiSelect.disabled = true;
-                isKalemiSelect.style.backgroundColor = "#e9ecef";
+                isKalemiSelect.style.backgroundColor = "#e9ecef"; // Gri yap
             } else {
                 isKalemiSelect.disabled = false;
                 isKalemiSelect.style.backgroundColor = "";
             }
 
+            // Hizmet seçiliyse Malzemeyi kilitle
             if (isKalemiSelect.value) {
                 malzemeSelect.disabled = true;
-                malzemeSelect.style.backgroundColor = "#e9ecef";
+                malzemeSelect.style.backgroundColor = "#e9ecef"; // Gri yap
             } else {
                 malzemeSelect.disabled = false;
                 malzemeSelect.style.backgroundColor = "";
             }
         }
 
-        // Olay Dinleyicileri
+        // ---------------------------------------------------------
+        // 6. EVENT LISTENER (OLAY DİNLEYİCİLERİ)
+        // ---------------------------------------------------------
+        
+        // Fiyatı etkileyen her türlü değişiklikte hesapla
         [miktarInput, fiyatInput, paraSelect, kdvOranSelect, kdvDahilCheck].forEach(el => {
             el.addEventListener('input', hesapla);
             el.addEventListener('change', hesapla);
         });
 
-        malzemeSelect.addEventListener('change', toggleInputs);
-        isKalemiSelect.addEventListener('change', toggleInputs);
+        // Malzeme değişince -> Kilitle -> KDV'yi Getir -> Hesapla
+        malzemeSelect.addEventListener('change', function() {
+            toggleInputs();
+            kdvGuncelle();
+        });
 
-        // Başlangıçta çalıştır
+        // Hizmet değişince -> Kilitle -> KDV'yi Getir -> Hesapla
+        isKalemiSelect.addEventListener('change', function() {
+            toggleInputs();
+            kdvGuncelle();
+        });
+
+        // ---------------------------------------------------------
+        // 7. BAŞLANGIÇ (SAYFA YÜKLENDİĞİNDE)
+        // ---------------------------------------------------------
         toggleInputs();
+        // Eğer sayfa "Düzenle" modunda açıldıysa veya bir talep id ile geldiyse
+        // seçili malzemenin KDV'sini bozmamak için kdvGuncelle() çağırmıyoruz,
+        // sadece mevcut değerlerle hesapla() yapıyoruz.
         hesapla();
     });
 </script>

@@ -8,9 +8,13 @@ from django.core.exceptions import ValidationError
 # SABİTLER (GLOBAL)
 # ==========================================
 
-# KDV Oranlarını en tepeye aldık ki hem Malzeme hem Teklif kullanabilsin.
+# GÜNCELLENMİŞ KDV ORANLARI (KKTC Standartları - Özel Matrah Yok)
 KDV_ORANLARI = [
-    (0, '%0'), (5, '%5'), (10, '%10'), (16, '%16'), (20, '%20'), (-1, 'Özel Matrah'),
+    (0, '%0'), 
+    (5, '%5'), 
+    (10, '%10'), 
+    (16, '%16'), 
+    (20, '%20')
 ]
 
 # ==========================================
@@ -278,22 +282,22 @@ class SatinAlma(models.Model):
         ('tamamlandi', '🟢 Tamamlandı (Hepsi Geldi)'),
     ]
     
-    # Teklif ile birebir bağ (Hangi onaylı teklifin siparişi?)
-    teklif = models.OneToOneField(Teklif, on_delete=models.CASCADE, related_name='satinalma_donusumu', verbose_name="İlgili Teklif")
+    # Teklif ile birebir bağ
+    teklif = models.OneToOneField('Teklif', on_delete=models.CASCADE, related_name='satinalma_donusumu', verbose_name="İlgili Teklif")
     
     # Süreç Takibi
     siparis_tarihi = models.DateField(default=timezone.now, verbose_name="Sipariş Tarihi")
     teslimat_durumu = models.CharField(max_length=20, choices=TESLIMAT_DURUMLARI, default='bekliyor')
     
-    # Miktar Takibi (Kritik Alanlar)
+    # Miktar Takibi
     toplam_miktar = models.FloatField(default=0, verbose_name="Sipariş Edilen Toplam")
-    teslim_edilen = models.FloatField(default=0, verbose_name="Şuana Kadar Gelen")
+    teslim_edilen = models.FloatField(default=0, verbose_name="Şuana Kadar Gelen (Fatura)")
     
     aciklama = models.TextField(blank=True, verbose_name="Notlar")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Otomatik Durum Güncelleme Mantığı
+        # Otomatik Durum Güncelleme
         if self.teslim_edilen == 0:
             self.teslimat_durumu = 'bekliyor'
         elif 0 < self.teslim_edilen < self.toplam_miktar:
@@ -304,13 +308,39 @@ class SatinAlma(models.Model):
         super(SatinAlma, self).save(*args, **kwargs)
 
     @property
+    def kalan_sevk_hakki(self):
+        """
+        Fatura ile giren miktardan, transfer ile çıkan miktarı çıkarır.
+        Hem eski ('depohareket_set') hem yeni ('hareketler') isimlendirmeyi destekler.
+        """
+        try:
+            # 1. Önce yeni yöntemle bulmaya çalış
+            hareketler_listesi = self.hareketler.filter(islem_turu='cikis')
+        except AttributeError:
+            # 2. Hata verirse eski (standart) yöntemle bulmaya çalış
+            hareketler_listesi = self.depohareket_set.filter(islem_turu='cikis')
+        
+        # Toplama İşlemi
+        toplam_sevk = hareketler_listesi.aggregate(toplam=Sum('miktar'))['toplam']
+        
+        # Eğer hiç hareket yoksa (None ise) 0 kabul et
+        if toplam_sevk is None:
+            toplam_sevk = 0
+        
+        # Hesaplama: Fatura Girişi - Sevk Edilen
+        kalan = self.teslim_edilen - toplam_sevk
+        return max(kalan, 0)
+    
+    @property
     def kalan_miktar(self):
-        return self.toplam_miktar - self.teslim_edilen
+        """Tedarikçiden daha gelmesi gereken (Faturası kesilmemiş) miktar"""
+        return max(self.toplam_miktar - self.teslim_edilen, 0)
 
     @property
     def tamamlanma_yuzdesi(self):
         if self.toplam_miktar == 0: return 0
-        return (self.teslim_edilen / self.toplam_miktar) * 100
+        yuzde = (self.teslim_edilen / self.toplam_miktar) * 100
+        return min(yuzde, 100) # %100'ü geçmesin
 
     def __str__(self):
         return f"{self.teklif.tedarikci} - {self.teklif.malzeme.isim} (Kalan: {self.kalan_miktar})"
@@ -533,3 +563,59 @@ class Hakedis(models.Model):
 
     class Meta:
         verbose_name_plural = "Taşeron Hakedişleri"
+
+    # core/models.py (Mevcut dosyanıza ekleyin)
+
+# ... (Mevcut modeller yukarıda) ...
+
+class Fatura(models.Model):
+    """
+    Tedarikçiden gelen resmi faturanın sisteme işlendiği model.
+    Bu model hem FİNANS (Borçlanma) hem de DEPO (Stok Girişi) tetikleyicisidir.
+    """
+    satinalma = models.ForeignKey(SatinAlma, on_delete=models.CASCADE, related_name='faturalar', verbose_name="İlgili Sipariş")
+    
+    fatura_no = models.CharField(max_length=50, verbose_name="Fatura No")
+    tarih = models.DateField(default=timezone.now, verbose_name="Fatura Tarihi")
+    
+    # Fatura Detayları (Tekliften otomatik gelecek ama değiştirilebilir)
+    miktar = models.FloatField(verbose_name="Fatura Edilen Miktar")
+    tutar = models.FloatField(verbose_name="Fatura Tutarı (KDV Dahil)")
+    
+    # Stok Hareketi İçin
+    depo = models.ForeignKey(Depo, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Giriş Yapılacak Depo")
+    
+    dosya = models.FileField(upload_to='faturalar/', blank=True, null=True, verbose_name="Fatura Görseli/PDF")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super(Fatura, self).save(*args, **kwargs)
+        
+        # Fatura İLK KEZ kaydediliyorsa otomatik işlemler yap:
+        if is_new:
+            # 1. STOK GİRİŞİ YAP (Eğer malzeme ise ve depo seçildiyse)
+            if self.satinalma.teklif.malzeme and self.depo:
+                DepoHareket.objects.create(
+                    malzeme=self.satinalma.teklif.malzeme,
+                    depo=self.depo,
+                    siparis=self.satinalma,
+                    # Hareketi faturaya bağlayabiliriz veya açıklamaya yazabiliriz
+                    islem_turu='giris',
+                    miktar=self.miktar,
+                    tedarikci=self.satinalma.teklif.tedarikci,
+                    irsaliye_no=f"FATURA-{self.fatura_no}", # İrsaliye yerine Fatura Ref
+                    tarih=self.tarih,
+                    aciklama=f"Fatura Girişi: {self.fatura_no}"
+                )
+            
+            # 2. SİPARİŞ DURUMUNU GÜNCELLE
+            self.satinalma.teslim_edilen += self.miktar
+            self.satinalma.save() # SatinAlma modelindeki save metodu durumu (tamamlandı/kısmi) otomatik ayarlar.
+
+    def __str__(self):
+        return f"Fatura #{self.fatura_no} - {self.satinalma.teklif.tedarikci}"
+
+    class Meta:
+        verbose_name = "Alış Faturası"
+        verbose_name_plural = "Alış Faturaları"

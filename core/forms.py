@@ -1,10 +1,11 @@
 from django import forms
-from .models import DepoTransfer, Depo, Teklif, Malzeme, IsKalemi, Tedarikci
-from .models import MalzemeTalep
-
+from .models import (
+    DepoTransfer, Depo, Teklif, Malzeme, 
+    IsKalemi, Tedarikci, MalzemeTalep, KDV_ORANLARI, Fatura
+)
 
 # ========================================================
-# 1. MEVCUT FORMUNUZ: DEPO TRANSFER
+# 1. DEPO TRANSFER FORMU
 # ========================================================
 
 class DepoTransferForm(forms.ModelForm):
@@ -35,34 +36,25 @@ class DepoTransferForm(forms.ModelForm):
 
         if kaynak and malzeme and miktar:
             try:
-                # Modelde depo_stogu metodu varsa çalışır
                 mevcut_stok = malzeme.depo_stogu(kaynak.id)
                 if mevcut_stok < miktar:
                     raise forms.ValidationError(
-                        f"Hata: Tedarikçide (Sanal Depoda) bu kadar mal görünmüyor! Mevcut: {mevcut_stok}"
+                        f"Hata: Kaynak depoda yeterli stok yok! Mevcut: {mevcut_stok}"
                     )
             except AttributeError:
                 pass
         return cleaned_data
 
 # ========================================================
-# 2. TEKLİF GİRİŞ FORMU
+# 2. TEKLİF GİRİŞ FORMU (GÜNCELLENDİ)
 # ========================================================
 
 class TeklifForm(forms.ModelForm):
-    KDV_SECENEKLERI = [
-        (0, '%0 (İstisna)'),
-        (5, '%5'),
-        (10, '%10'),
-        (16, '%16'),
-        (20, '%20 (Standart)'),
-        (1, '%1 (Özel Matrah / Diğer)'),
-    ]
-
+    # KDV Seçimi: Varsayılan (initial) kaldırıldı, 'Seçiniz' eklendi.
     kdv_orani_secimi = forms.ChoiceField(
-        choices=KDV_SECENEKLERI, 
+        choices=[('', 'Seçiniz...')] + list(KDV_ORANLARI), 
         label="KDV Oranı", 
-        initial=20,
+        required=True, # Kullanıcı seçim yapmak zorunda
         widget=forms.Select(attrs={'class': 'form-select'})
     )
 
@@ -98,7 +90,7 @@ class TeklifForm(forms.ModelForm):
         return cleaned_data
 
 # ========================================================
-# 3. YENİ TANIMLAMA FORMLARI (TEDARİKÇİ & MALZEME)
+# 3. TANIMLAMA FORMLARI
 # ========================================================
 
 class TedarikciForm(forms.ModelForm):
@@ -127,7 +119,7 @@ class MalzemeForm(forms.ModelForm):
         }
 
 # ========================================================
-# 4. YENİ TALEP OLUŞTURMA FORMU
+# 4. TALEP FORMLARI
 # ========================================================
 
 class TalepForm(forms.ModelForm):
@@ -137,7 +129,7 @@ class TalepForm(forms.ModelForm):
         
         widgets = {
             'malzeme': forms.Select(attrs={'class': 'form-select select2'}),
-            'is_kalemi': forms.Select(attrs={'class': 'form-select select2'}), # YENİ
+            'is_kalemi': forms.Select(attrs={'class': 'form-select select2'}), 
             'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Örn: 100'}),
             'oncelik': forms.Select(attrs={'class': 'form-select'}),
             'proje_yeri': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: A Blok - 1. Kat'}),
@@ -168,3 +160,21 @@ class IsKalemiForm(forms.ModelForm):
             'kdv_orani': forms.Select(attrs={'class': 'form-select'}),
             'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Yapılacak işin detayı...'}),
         }
+
+class FaturaGirisForm(forms.ModelForm):
+    class Meta:
+        model = Fatura
+        fields = ['fatura_no', 'tarih', 'depo', 'miktar', 'tutar', 'dosya']
+        widgets = {
+            'fatura_no': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'ABC-2024...'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'depo': forms.Select(attrs={'class': 'form-select'}),
+            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'tutar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'dosya': forms.FileInput(attrs={'class': 'form-control'}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super(FaturaGirisForm, self).__init__(*args, **kwargs)
+        # Depo seçimi zorunlu olmasın (Hizmet faturaları için depo gerekmez)
+        self.fields['depo'].required = False

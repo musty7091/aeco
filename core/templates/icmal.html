@@ -18,20 +18,31 @@
         .request-card.cok_acil { border-left-color: #dc3545; }
         .request-card.islemde { border-left-color: #3498db; }
         .request-card.onaylandi { border-left-color: #198754; background-color: #f8fff9; }
-        /* Arşiv Rengi (Gri) */
         .request-card.tamamlandi { border-left-color: #6c757d; background-color: #fcfcfc; opacity: 0.9; }
 
         .req-header { padding: 15px 20px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; background: #fff; }
         .req-body { padding: 20px; background: #fdfdfd; }
         .req-footer { background: #f1f2f6; padding: 10px 20px; font-size: 0.85rem; color: #7f8c8d; display: flex; gap: 20px; align-items: center; }
 
-        .teklif-wrapper { display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px; }
+        /* GÜNCELLENEN KISIM: Wrapper'a üst boşluk verdik ki rozet kesilmesin */
+        .teklif-wrapper { 
+            display: flex; 
+            gap: 20px; 
+            overflow-x: auto; 
+            padding-bottom: 15px; 
+            padding-top: 25px; /* Rozet için üstten yer açtık */
+            padding-left: 5px;
+        }
+        
+        /* GÜNCELLENEN KISIM: Kutu genişliği arttı (280 -> 320px) */
         .teklif-kutusu { 
-            min-width: 280px; background-color: white; border: 1px solid #dee2e6; 
+            min-width: 320px; /* Daha geniş alan */
+            background-color: white; border: 1px solid #dee2e6; 
             border-radius: 8px; padding: 15px; transition: all 0.3s; position: relative;
             box-shadow: 0 2px 5px rgba(0,0,0,0.02);
         }
         .teklif-kutusu:hover { box-shadow: 0 10px 20px rgba(0,0,0,0.1); transform: translateY(-3px); border-color: #bbb; }
+        
         .teklif-kutusu.onayli { border: 2px solid #198754; background-color: #f0fff4; }
         .teklif-kutusu.reddedildi { border: 1px solid #dc3545; background-color: #fff5f5; opacity: 0.6; }
 
@@ -139,31 +150,52 @@
             {% if talep.teklifler.all %}
                 <div class="teklif-wrapper">
                     {% for teklif in talep.teklifler.all %}
-                    <div class="teklif-kutusu {% if teklif.durum == 'onaylandi' %}onayli{% elif teklif.durum == 'reddedildi' %}reddedildi{% endif %}">
                         
-                        <div class="d-flex justify-content-between mb-2 border-bottom pb-2">
-                            <span class="badge {% if teklif.durum == 'onaylandi' %}bg-success{% elif teklif.durum == 'reddedildi' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
-                                {{ teklif.get_durum_display }}
-                            </span>
-                            
-                            {% if not arsiv_modu %}
-                            <div class="d-flex">
-                                <a href="/admin/core/teklif/{{ teklif.id }}/change/" target="_blank" class="btn btn-outline-primary action-btn"><i class="fas fa-pencil-alt"></i></a>
-                                {% if teklif.durum != 'onaylandi' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'onaylandi' %}" class="btn btn-outline-success action-btn"><i class="fas fa-check"></i></a>{% endif %}
-                                {% if teklif.durum != 'beklemede' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'beklemede' %}" class="btn btn-outline-warning action-btn"><i class="fas fa-hourglass-half"></i></a>{% endif %}
-                                {% if teklif.durum != 'reddedildi' %}<a href="{% url 'teklif_durum_guncelle' teklif.id 'reddedildi' %}" class="btn btn-outline-danger action-btn"><i class="fas fa-times"></i></a>{% endif %}
+                        {% if teklif.id == talep.en_uygun_teklif_id and talep.teklifler.count > 1 %}
+                            <div class="teklif-kutusu" style="border: 2px solid #28a745; background-color: #f0fff4; position: relative;">
+                                <div class="position-absolute top-0 start-50 translate-middle badge rounded-pill bg-success shadow-sm border border-light" style="z-index: 10;">
+                                    <i class="fas fa-star text-warning"></i> EN UYGUN
+                                </div>
+                        {% else %}
+                            <div class="teklif-kutusu {% if teklif.durum == 'onaylandi' %}onayli{% elif teklif.durum == 'reddedildi' %}reddedildi{% endif %}">
+                        {% endif %}
+                        
+                            <div class="d-flex justify-content-between mb-2 border-bottom pb-2 mt-2">
+                                <span class="badge {% if teklif.durum == 'onaylandi' %}bg-success{% elif teklif.durum == 'reddedildi' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                    {{ teklif.get_durum_display }}
+                                </span>
+                                
+                                {% if not arsiv_modu %}
+                                <div class="d-flex">
+                                    <a href="/admin/core/teklif/{{ teklif.id }}/change/" target="_blank" class="btn btn-outline-primary action-btn" title="Düzenle"><i class="fas fa-pencil-alt"></i></a>
+                                    
+                                    {% if teklif.durum != 'onaylandi' %}
+                                        <a href="{% url 'teklif_durum_guncelle' teklif.id 'onaylandi' %}" class="btn btn-outline-success action-btn" title="Onayla"><i class="fas fa-check"></i></a>
+                                    {% endif %}
+                                    
+                                    {% if teklif.durum != 'beklemede' %}
+                                        <a href="{% url 'teklif_durum_guncelle' teklif.id 'beklemede' %}" class="btn btn-outline-warning action-btn" title="Beklemeye Al"><i class="fas fa-hourglass-half"></i></a>
+                                    {% endif %}
+                                    
+                                    {% if teklif.durum != 'reddedildi' %}
+                                        <a href="{% url 'teklif_durum_guncelle' teklif.id 'reddedildi' %}" class="btn btn-outline-danger action-btn" title="Reddet"><i class="fas fa-times"></i></a>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
                             </div>
+
+                            <div class="fw-bold text-primary text-truncate mb-1" title="{{ teklif.tedarikci.firma_unvani }}">{{ teklif.tedarikci.firma_unvani }}</div>
+                            
+                            <div class="fs-4 fw-bold {% if teklif.id == talep.en_uygun_teklif_id and talep.teklifler.count > 1 %}text-success{% else %}text-dark{% endif %} mb-1">
+                                {{ teklif.toplam_fiyat_tl|floatformat:0 }} ₺
+                            </div>
+                            
+                            <div class="small text-muted">Birim: {{ teklif.birim_fiyat|floatformat:2 }} {{ teklif.para_birimi }} {% if teklif.kdv_orani > 0 %}(+KDV){% endif %}</div>
+                            
+                            {% if teklif.teklif_dosyasi %}
+                                <a href="{{ teklif.teklif_dosyasi.url }}" target="_blank" class="btn btn-sm btn-light w-100 mt-3 text-danger border"><i class="fas fa-file-pdf me-1"></i> Dosya</a>
                             {% endif %}
                         </div>
-
-                        <div class="fw-bold text-primary text-truncate mb-1">{{ teklif.tedarikci.firma_unvani }}</div>
-                        <div class="fs-4 fw-bold text-dark mb-1">{{ teklif.toplam_fiyat_tl|floatformat:0 }} ₺</div>
-                        <div class="small text-muted">Birim: {{ teklif.birim_fiyat|floatformat:2 }} {{ teklif.para_birimi }} {% if teklif.kdv_orani > 0 %}(+KDV){% endif %}</div>
-                        
-                        {% if teklif.teklif_dosyasi %}
-                            <a href="{{ teklif.teklif_dosyasi.url }}" target="_blank" class="btn btn-sm btn-light w-100 mt-3 text-danger border"><i class="fas fa-file-pdf me-1"></i> Dosya</a>
-                        {% endif %}
-                    </div>
                     {% endfor %}
                 </div>
             {% else %}

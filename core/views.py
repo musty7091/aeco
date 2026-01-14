@@ -5,11 +5,16 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.decorators import login_required 
 from django.contrib import messages
+from django.http import JsonResponse
+from django.http import HttpResponse
 from .models import (
     Kategori, IsKalemi, Tedarikci, Depo, Malzeme, 
     MalzemeTalep, Teklif, SatinAlma, DepoHareket,
     Odeme, Harcama, GiderKategorisi, Hakedis
 )
+from .models import Fatura
+from .forms import FaturaGirisForm
+from .forms import DepoTransferForm
 from .utils import tcmb_kur_getir
 from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm # Yeni formları import etmeyi unutmayın
 
@@ -47,22 +52,37 @@ def dashboard(request):
 def icmal_raporu(request):
     """
     GÜNCELLENMİŞ VERSİYON:
-    Artık sabit kategorileri değil, yaşayan 'Malzeme Taleplerini' listeler.
+    Talepleri listelerken EN UYGUN TEKLİFİ de hesaplayıp işaretler.
     """
-    # 1. Yetki Kontrolü
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
         return redirect('erisim_engellendi')
 
-    # 2. Veri Çekme (Talep Bazlı)
-    # Bekleyen, İşlemde (Teklif Toplanan) veya Sipariş Onaylanmışları getir.
-    # Tamamlanmış veya Reddedilmişleri listeyi şişirmemek için getirmiyoruz.
-    aktif_talepler = MalzemeTalep.objects.filter(
+    # Veri Çekme
+    talepler_query = MalzemeTalep.objects.filter(
         durum__in=['bekliyor', 'islemde', 'onaylandi']
     ).select_related(
-        'malzeme', 'is_kalemi', 'talep_eden'  # <-- 'is_kalemi' EKLENDİ
+        'malzeme', 'is_kalemi', 'talep_eden'
     ).prefetch_related(
         'teklifler', 'teklifler__tedarikci'
     ).order_by('-oncelik', '-tarih')
+
+    # QuerySet'i Listeye çevirip üzerinde işlem yapalım
+    aktif_talepler = list(talepler_query)
+
+    for talep in aktif_talepler:
+        # Bu talebe ait tüm teklifleri al
+        teklifler = talep.teklifler.all()
+        
+        # Eğer teklif varsa fiyatları karşılaştır
+        if teklifler:
+            # 'toplam_fiyat_tl' özelliğine göre en küçüğünü bul
+            # (Teklif modeli içindeki property sayesinde kur ve kdv dahil hesaplanır)
+            try:
+                en_uygun = min(teklifler, key=lambda t: t.toplam_fiyat_tl)
+                # Bulduğumuz en ucuz teklifin ID'sini geçici olarak talebe ekle
+                talep.en_uygun_teklif_id = en_uygun.id
+            except ValueError:
+                pass
 
     context = {'aktif_talepler': aktif_talepler}
     return render(request, 'icmal.html', context)
@@ -101,11 +121,12 @@ def talep_olustur(request):
 
     return render(request, 'talep_olustur.html', {'form': form})
 
+
 @login_required
 def teklif_ekle(request):
     """
     Sadeleştirilmiş Teklif Giriş Ekranı.
-    Otomatik Kur Bilgisi ve TALEP BAĞLANTISI ile donatıldı.
+    Otomatik Kur Bilgisi, TALEP BAĞLANTISI ve OTOMATİK KDV SEÇİMİ ile donatıldı.
     """
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
         return redirect('erisim_engellendi')
@@ -121,42 +142,59 @@ def teklif_ekle(request):
         secili_talep = get_object_or_404(MalzemeTalep, id=talep_id)
         # Formdaki alanları otomatik doldur
         initial_data['miktar'] = secili_talep.miktar
+        
         if secili_talep.malzeme:
             initial_data['malzeme'] = secili_talep.malzeme
+            # YENİ: Talepten gelen malzemenin KDV'sini de formda seçili getir
+            initial_data['kdv_orani_secimi'] = secili_talep.malzeme.kdv_orani
+            
         if secili_talep.is_kalemi:
             initial_data['is_kalemi'] = secili_talep.is_kalemi
+            # YENİ: Talepten gelen hizmetin KDV'sini de formda seçili getir
+            initial_data['kdv_orani_secimi'] = secili_talep.is_kalemi.kdv_orani
 
-    # Canlı Kurları Çek ve JSON'a çevir (Frontend için)
+    # 1. Canlı Kurları Çek ve JSON'a çevir (Frontend için)
     guncel_kurlar = tcmb_kur_getir()
     kurlar_dict = {k: float(v) for k, v in guncel_kurlar.items()}
     kurlar_dict['TRY'] = 1.0
     kurlar_json = json.dumps(kurlar_dict)
+
+    # 2. KDV Oranlarını Hazırla (Frontend Otomasyonu İçin)
+    # Malzeme ID -> KDV Oranı eşleşmesi: {1: 20, 2: 10, ...}
+    # Yeni malzeme eklediğinizde bu liste sayesinde KDV'si otomatik gelecek.
+    malzeme_kdv_map = {m.id: m.kdv_orani for m in Malzeme.objects.all()}
+    malzeme_kdv_json = json.dumps(malzeme_kdv_map)
+
+    # Hizmet (İş Kalemi) ID -> KDV Oranı eşleşmesi
+    hizmet_kdv_map = {h.id: h.kdv_orani for h in IsKalemi.objects.all()}
+    hizmet_kdv_json = json.dumps(hizmet_kdv_map)
 
     if request.method == 'POST':
         form = TeklifForm(request.POST, request.FILES)
         if form.is_valid():
             teklif = form.save(commit=False)
             
-            # --- KRİTİK DOKUNUŞ: TALEBİ TEKLİFE BAĞLA ---
+            # --- TALEBİ TEKLİFE BAĞLA ---
             if talep_id:
                 talep_obj = get_object_or_404(MalzemeTalep, id=talep_id)
-                teklif.talep = talep_obj # İlişki burada kuruluyor!
+                teklif.talep = talep_obj # İlişki burada kuruluyor
                 
-                # Malzeme/Hizmet bilgisi formdan gelmese bile talepten zorla
+                # Malzeme/Hizmet bilgisi formdan gelmese bile talepten zorla (Güvenlik)
                 if talep_obj.malzeme: teklif.malzeme = talep_obj.malzeme
                 if talep_obj.is_kalemi: teklif.is_kalemi = talep_obj.is_kalemi
-            # ---------------------------------------------
+            # -----------------------------
 
-            # KDV Oranını float'a çevir
+            # KDV Oranını formdan gelen seçimden alıp float'a çevir
+            # forms.py'de 'required=True' olduğu için buraya boş gelme ihtimali yok.
             oran = int(form.cleaned_data['kdv_orani_secimi'])
             teklif.kdv_orani = float(oran)
             
-            # Kur değerini veritabanına sabitle
+            # Kur değerini o anki veriden alıp veritabanına sabitle
             secilen_para = teklif.para_birimi
             teklif.kur_degeri = guncel_kurlar.get(secilen_para, 1.0)
             
             teklif.save()
-            messages.success(request, f"✅ Teklif başarıyla kaydedildi ve talebe bağlandı.")
+            messages.success(request, f"✅ Teklif başarıyla kaydedildi.")
             return redirect('icmal_raporu')
         else:
             messages.error(request, "Lütfen formdaki hataları düzeltiniz.")
@@ -167,7 +205,10 @@ def teklif_ekle(request):
         'form': form,
         'kurlar_json': kurlar_json,
         'guncel_kurlar': guncel_kurlar,
-        'secili_talep': secili_talep # Şablonda bilgi göstermek isterseniz diye
+        'secili_talep': secili_talep,
+        # JavaScript'in okuyacağı KDV haritaları
+        'malzeme_kdv_json': malzeme_kdv_json,
+        'hizmet_kdv_json': hizmet_kdv_json,
     }
     return render(request, 'teklif_ekle.html', context)
 
@@ -367,12 +408,23 @@ def finans_ozeti(request):
     genel_kalan_bakiye = 0
 
     for ted in tedarikciler:
-        onayli_teklifler = ted.teklifler.filter(durum='onaylandi')
-        toplam_borc = sum(t.toplam_fiyat_tl for t in onayli_teklifler)
+        # --- DEĞİŞİKLİK BURADA BAŞLIYOR ---
+        # Eski Hali: Onaylı teklifleri topluyorduk.
+        # Yeni Hali: Artık sisteme girilen RESMİ FATURALARI topluyoruz.
+        # Tedarikçiye bağlı tüm siparişlerin faturalarını buluyoruz:
+        tedarikci_faturalari = Fatura.objects.filter(satinalma__teklif__tedarikci=ted)
+        
+        # Bu faturaların toplam tutarını (KDV Dahil) hesapla
+        toplam_borc = sum(f.tutar for f in tedarikci_faturalari)
+        # ----------------------------------
+
+        # Ödemeler kısmı aynı kalıyor (Çünkü ödeme yapısı değişmedi)
         yapilan_odemeler = ted.odemeler.all()
         toplam_odenen = sum(o.tl_tutar for o in yapilan_odemeler)
+        
         kalan = toplam_borc - toplam_odenen
         
+        # Eğer borç veya ödeme hareketi varsa listeye ekle
         if toplam_borc > 0 or toplam_odenen > 0:
             finans_verisi.append({
                 'id': ted.id,
@@ -985,6 +1037,256 @@ def siparis_detay(request, siparis_id):
         'siparis': siparis,
         'hareketler': hareketler
     })
+
+@login_required
+def fatura_girisi(request, siparis_id):
+    """
+    Onaylı sipariş için Fatura ve Stok Girişini tek ekranda yapar.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+    
+    # Form Açılış Değerleri (Otomatik Dolu Gelmesi İçin)
+    initial_data = {
+        'miktar': siparis.kalan_miktar, # Kalan ne kadarsa o kadar öner
+        'tutar': 0, # Aşağıda hesaplayacağız
+        'tarih': timezone.now().date()
+    }
+    
+    # Kalan miktarın tutarını hesapla (Birim Fiyat * Kalan Miktar * KDV)
+    if siparis.kalan_miktar > 0:
+        teklif = siparis.teklif
+        birim_fiyat_tl = float(teklif.birim_fiyat) * float(teklif.kur_degeri)
+        kdv_carpani = 1 + (teklif.kdv_orani / 100)
+        tahmini_tutar = siparis.kalan_miktar * birim_fiyat_tl * kdv_carpani
+        initial_data['tutar'] = round(tahmini_tutar, 2)
+
+    if request.method == 'POST':
+        form = FaturaGirisForm(request.POST, request.FILES)
+        if form.is_valid():
+            fatura = form.save(commit=False)
+            fatura.satinalma = siparis
+            
+            # Hizmet faturaları için depo seçilmemiş olabilir, sorun yok.
+            # Ancak Malzeme ise ve Depo seçilmediyse uyarabiliriz (Opsiyonel)
+            
+            fatura.save() # Save metodu stok hareketini ve sipariş güncellemesini otomatik yapacak (models.py'de yazdık)
+            
+            messages.success(request, f"✅ Fatura #{fatura.fatura_no} sisteme işlendi. Stok ve Cari güncellendi.")
+            return redirect('siparis_listesi')
+    else:
+        form = FaturaGirisForm(initial=initial_data)
+
+    return render(request, 'fatura_girisi.html', {'form': form, 'siparis': siparis})
+
+@login_required
+def fatura_sil(request, fatura_id):
+    """
+    Girilen hatalı bir faturayı ve yarattığı stok/sipariş etkilerini geri alır.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    fatura = get_object_or_404(Fatura, id=fatura_id)
+    siparis = fatura.satinalma
+    
+    # 1. SİPARİŞİ GÜNCELLE (Geri Al)
+    siparis.teslim_edilen -= fatura.miktar
+    # Eksiye düşerse sıfırla (Güvenlik)
+    if siparis.teslim_edilen < 0: 
+        siparis.teslim_edilen = 0
+        
+    # Durumu tekrar hesapla
+    if siparis.teslim_edilen == 0:
+        siparis.teslimat_durumu = 'bekliyor'
+    elif siparis.teslim_edilen < siparis.toplam_miktar:
+        siparis.teslimat_durumu = 'kismi'
+    else:
+        siparis.teslimat_durumu = 'tamamlandi'
+    
+    siparis.save()
+
+    # 2. STOK HAREKETİNİ SİL
+    # Fatura kaydedilirken "Fatura Girişi: NO" diye açıklama yazmıştık.
+    # Buna göre depodaki hareketi bulup siliyoruz.
+    hareket = DepoHareket.objects.filter(
+        siparis=siparis,
+        aciklama__icontains=f"Fatura Girişi: {fatura.fatura_no}",
+        miktar=fatura.miktar
+    ).first()
+    
+    if hareket:
+        hareket.delete()
+
+    # 3. FATURAYI SİL (Cari Borç Otomatik Silinir)
+    fatura_no = fatura.fatura_no
+    fatura.delete()
+
+    messages.warning(request, f"🗑️ Fatura #{fatura_no} iptal edildi. Stok ve Sipariş durumu geri alındı.")
+    
+    # Sipariş detay sayfasına geri dön
+    return redirect('siparis_detay', siparis_id=siparis.id)
+
+
+@login_required
+def depo_transfer(request):
+    # Yetki Kontrolü
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'DEPO_SORUMLUSU', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    siparis_id = request.GET.get('siparis_id') or request.POST.get('siparis_id')
+    
+    siparis = None
+    kalan_sevk_hakki = 0
+    toplam_faturalanan = 0
+    toplam_sevk_edilen = 0
+    gecmis_hareketler = []
+    initial_data = {}
+
+    if siparis_id:
+        siparis = get_object_or_404(SatinAlma, id=siparis_id)
+        toplam_faturalanan = siparis.teslim_edilen
+        
+        # Siparişe ait çıkış hareketleri
+        sevk_hareketleri = DepoHareket.objects.filter(siparis=siparis, islem_turu='cikis').order_by('-tarih')
+        toplam_sevk_edilen = sum(h.miktar for h in sevk_hareketleri)
+        kalan_sevk_hakki = toplam_faturalanan - toplam_sevk_edilen
+        
+        gecmis_hareketler = sevk_hareketleri
+
+        # Form açılış değerleri (GET isteği)
+        if request.method == 'GET':
+            if siparis.teklif.malzeme:
+                initial_data['malzeme'] = siparis.teklif.malzeme
+            
+            son_fatura = siparis.faturalar.last()
+            if son_fatura and son_fatura.depo:
+                initial_data['kaynak_depo'] = son_fatura.depo
+                if son_fatura.depo.is_sanal:
+                    fiziksel = Depo.objects.filter(is_sanal=False).first()
+                    if fiziksel:
+                        initial_data['hedef_depo'] = fiziksel
+
+    if request.method == 'POST':
+        form = DepoTransferForm(request.POST)
+        if form.is_valid():
+            # DİKKAT: Burada save() yapmıyoruz, sadece verileri nesneye yüklüyoruz.
+            transfer = form.save(commit=False)
+            
+            # --- STOK KONTROLÜ ---
+            mevcut_stok = transfer.malzeme.depo_stogu(transfer.kaynak_depo.id)
+            
+            if siparis and transfer.miktar > kalan_sevk_hakki:
+                 messages.error(request, f"HATA: Sipariş bakiyesinden fazla ürün sevk edemezsiniz! (Kalan Hak: {kalan_sevk_hakki})")
+            
+            elif transfer.miktar > mevcut_stok:
+                 messages.error(request, f"HATA: Kaynak depoda fiziksel olarak yeterli stok yok! (Mevcut: {mevcut_stok})")
+                 
+            else:
+                # --- HATANIN ÇÖZÜLDÜĞÜ YER ---
+                # ESKİ KODDA BURADA transfer.save() VARDI. BU SATIR SİLİNDİ.
+                # Formu kaydetmiyoruz çünkü aşağıda zaten manuel create yapıyoruz.
+                
+                # 1. Kaynaktan Çıkış Hareketi
+                DepoHareket.objects.create(
+                    malzeme=transfer.malzeme, 
+                    depo=transfer.kaynak_depo, 
+                    islem_turu='cikis',
+                    miktar=transfer.miktar, 
+                    siparis=siparis,
+                    aciklama=transfer.aciklama or f"Sevkiyat Çıkışı -> {transfer.hedef_depo.isim}", 
+                    tarih=transfer.tarih
+                )
+                
+                # 2. Hedefe Giriş Hareketi
+                DepoHareket.objects.create(
+                    malzeme=transfer.malzeme, 
+                    depo=transfer.hedef_depo, 
+                    islem_turu='giris',
+                    miktar=transfer.miktar, 
+                    siparis=siparis,
+                    aciklama=f"Sevkiyat Girişi <- {transfer.kaynak_depo.isim}", 
+                    tarih=transfer.tarih
+                )
+                
+                messages.success(request, "✅ Sevkiyat başarıyla kaydedildi.")
+                if siparis:
+                    return redirect('siparis_listesi')
+                return redirect('stok_listesi')
+        else:
+            messages.error(request, "Lütfen formdaki hataları kontrol edin.")
+    else:
+        form = DepoTransferForm(initial=initial_data)
+
+    context = {
+        'form': form,
+        'siparis': siparis,
+        'kalan_sevk_hakki': kalan_sevk_hakki,
+        'toplam_faturalanan': toplam_faturalanan,
+        'toplam_sevk_edilen': toplam_sevk_edilen,
+        'gecmis_hareketler': gecmis_hareketler,
+    }
+    return render(request, 'depo_transfer.html', context)
+
+@login_required
+def get_depo_stok(request):
+    """
+    Seçilen depo ve malzeme için anlık stok bilgisini döndürür (AJAX için).
+    """
+    depo_id = request.GET.get('depo_id')
+    malzeme_id = request.GET.get('malzeme_id')
+    
+    stok = 0
+    if depo_id and malzeme_id:
+        try:
+            malzeme = Malzeme.objects.get(id=malzeme_id)
+            stok = malzeme.depo_stogu(depo_id)
+        except (Malzeme.DoesNotExist, ValueError):
+            pass
+            
+    return JsonResponse({'stok': stok})
+
+@login_required
+def stok_rontgen(request, malzeme_id):
+    """
+    Bir malzemenin veritabanındaki TÜM hareketlerini (gizliler dahil) ham olarak listeler.
+    Hata ayıklama amaçlıdır.
+    """
+    if not request.user.is_superuser:
+        return HttpResponse("Yetkiniz yok.")
+
+    malzeme = get_object_or_404(Malzeme, id=malzeme_id)
+    hareketler = DepoHareket.objects.filter(malzeme=malzeme).order_by('tarih', 'id')
+    
+    html = f"<h1>🛠️ STOK RÖNTGENİ: {malzeme.isim}</h1>"
+    html += "<table border='1' cellpadding='5' style='border-collapse: collapse; width: 100%;'>"
+    html += "<tr style='background:#eee;'><th>ID</th><th>Tarih</th><th>İşlem</th><th>Depo</th><th>Miktar</th><th>Sipariş ID (Bağlantı)</th><th>Açıklama</th><th>Eylem</th></tr>"
+    
+    toplam_stok = 0
+    for h in hareketler:
+        renk = "red" if h.islem_turu == 'cikis' else "green"
+        etki = -h.miktar if h.islem_turu == 'cikis' else h.miktar
+        toplam_stok += etki
+        
+        siparis_durumu = f"✅ #{h.siparis.id}" if h.siparis else "⚠️ <b>YOK (SAHİPSİZ)</b>"
+        
+        html += f"<tr>"
+        html += f"<td>{h.id}</td>"
+        html += f"<td>{h.tarih}</td>"
+        html += f"<td style='color:{renk}; font-weight:bold;'>{h.get_islem_turu_display()}</td>"
+        html += f"<td>{h.depo.isim if h.depo else '-'}</td>"
+        html += f"<td>{h.miktar}</td>"
+        html += f"<td>{siparis_durumu}</td>"
+        html += f"<td>{h.aciklama}</td>"
+        html += f"<td><a href='/admin/core/depohareket/{h.id}/delete/' target='_blank'>SİL (Admin)</a></td>"
+        html += f"</tr>"
+        
+    html += "</table>"
+    html += f"<h3>MATEMATİKSEL SONUÇ (STOK): {toplam_stok}</h3>"
+    
+    return HttpResponse(html)
 
 def cikis_yap(request):
     logout(request)

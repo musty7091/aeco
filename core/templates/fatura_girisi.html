@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Fatura Girişi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow border-0">
+                <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 fw-bold"><i class="fas fa-file-invoice me-2"></i> ALIŞ FATURASI GİRİŞİ</h5>
+                    <span class="badge bg-warning text-dark">Sipariş #{{ siparis.id }}</span>
+                </div>
+                <div class="card-body p-4">
+                    
+                    <div class="alert alert-secondary d-flex">
+                        <div class="me-4 text-center">
+                            <i class="fas fa-truck fa-2x text-muted"></i>
+                        </div>
+                        <div>
+                            <h6 class="fw-bold mb-1">{{ siparis.teklif.tedarikci.firma_unvani }}</h6>
+                            
+                            <small class="d-block">Ürün / Hizmet: 
+                                <strong>
+                                    {% if siparis.teklif.malzeme %}
+                                        {{ siparis.teklif.malzeme.isim }}
+                                    {% elif siparis.teklif.is_kalemi %}
+                                        {{ siparis.teklif.is_kalemi.isim }}
+                                    {% else %}
+                                        Tanımsız
+                                    {% endif %}
+                                </strong>
+                            </small>
+                            
+                            <small class="d-block">
+                                Sipariş Bakiyesi: <strong>{{ siparis.kalan_miktar }} / {{ siparis.toplam_miktar }}</strong> 
+                                (
+                                {% if siparis.teklif.malzeme %}
+                                    {{ siparis.teklif.malzeme.get_birim_display }}
+                                {% else %}
+                                    {{ siparis.teklif.is_kalemi.get_birim_display }}
+                                {% endif %}
+                                )
+                            </small>
+                        </div>
+                    </div>
+
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Fatura No</label>
+                                {{ form.fatura_no }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Fatura Tarihi</label>
+                                {{ form.tarih }}
+                            </div>
+                        </div>
+
+                        <hr class="my-4 text-muted">
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-primary">Fatura Miktarı</label>
+                                {{ form.miktar }}
+                                <div class="form-text">Faturada yazan miktar (Stoklara bu girecek)</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-success">Fatura Tutarı (KDV Dahil)</label>
+                                {{ form.tutar }}
+                                <div class="form-text">Cari hesaba bu tutar işlenecek.</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4 p-3 bg-white border rounded">
+                            <label class="form-label fw-bold"><i class="fas fa-warehouse me-1"></i> Stok Giriş Deposu / Yeri</label>
+                            {{ form.depo }}
+                            <div class="form-text text-muted">
+                                <i class="fas fa-info-circle"></i> Eğer malzeme henüz şantiyeye gelmediyse (Tedarikçi deposundaysa) "Sanal Depo" seçiniz.
+                                <br>Hizmet/Taşeron faturası giriyorsanız boş bırakabilirsiniz.
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Fatura Görseli (Opsiyonel)</label>
+                            {{ form.dosya }}
+                        </div>
+
+                        <div class="d-grid gap-2 mt-4">
+                            <button type="submit" class="btn btn-success btn-lg fw-bold">
+                                <i class="fas fa-check-circle me-2"></i> FATURAYI KAYDET & STOKLARI GÜNCELLE
+                            </button>
+                            <a href="{% url 'siparis_listesi' %}" class="btn btn-outline-secondary">İptal</a>
+                        </div>
+                    </form>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
