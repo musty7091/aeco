@@ -77,6 +77,7 @@ urlpatterns = [
     path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),
     path('yazdir/<str:model_name>/<int:pk>/', views.belge_yazdir, name='belge_yazdir'),
+    path('api/tedarikci-bakiye/<int:tedarikci_id>/', views.get_tedarikci_bakiye, name='api_tedarikci_bakiye'),
     
     # 9. Oturum
     path('cikis/', views.cikis_yap, name='cikis_yap'),

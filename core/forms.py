@@ -1,11 +1,12 @@
 from django import forms
+from decimal import Decimal
 from .models import (
     DepoTransfer, Depo, Teklif, Malzeme, 
     IsKalemi, Tedarikci, MalzemeTalep, KDV_ORANLARI, Fatura, Hakedis, Odeme, Kategori
 )
 
 # ========================================================
-# 0. YENİ: KATEGORİ (İMALAT TÜRÜ) FORMU
+# 0. KATEGORİ (İMALAT TÜRÜ) FORMU
 # ========================================================
 
 class KategoriForm(forms.ModelForm):
@@ -36,13 +37,16 @@ class DepoTransferForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super(DepoTransferForm, self).__init__(*args, **kwargs)
         
-        sanal_depo = Depo.objects.filter(is_sanal=True).first()
-        fiziksel_depo = Depo.objects.filter(is_sanal=False).first()
-        
-        if sanal_depo and not self.initial.get('kaynak_depo'):
-            self.fields['kaynak_depo'].initial = sanal_depo
-        if fiziksel_depo and not self.initial.get('hedef_depo'):
-            self.fields['hedef_depo'].initial = fiziksel_depo
+        try:
+            sanal_depo = Depo.objects.filter(is_sanal=True).first()
+            fiziksel_depo = Depo.objects.filter(is_sanal=False).first()
+            
+            if sanal_depo and not self.initial.get('kaynak_depo'):
+                self.fields['kaynak_depo'].initial = sanal_depo
+            if fiziksel_depo and not self.initial.get('hedef_depo'):
+                self.fields['hedef_depo'].initial = fiziksel_depo
+        except:
+            pass
 
     def clean(self):
         cleaned_data = super().clean()
@@ -196,7 +200,7 @@ class FaturaGirisForm(forms.ModelForm):
         fields = ['fatura_no', 'tarih', 'depo', 'miktar', 'tutar', 'dosya']
         widgets = {
             'fatura_no': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fatura No', 'aria-label': 'Fatura No'}),
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Tarih'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Fatura Tarihi'}),
             'depo': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Depo'}),
             'miktar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'aria-label': 'Miktar'}),
             'tutar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'aria-label': 'Tutar'}),
@@ -214,7 +218,7 @@ class HakedisForm(forms.ModelForm):
         fields = ['hakedis_no', 'tarih', 'donem_baslangic', 'donem_bitis', 'tamamlanma_orani', 'aciklama']
         widgets = {
             'hakedis_no': forms.NumberInput(attrs={'class': 'form-control', 'value': 1, 'aria-label': 'Hakediş No'}),
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Tarih'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Hakediş Tarihi'}),
             'donem_baslangic': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Dönem Başlangıç'}),
             'donem_bitis': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Dönem Bitiş'}),
             'tamamlanma_orani': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Örn: 20', 'step': '0.01', 'aria-label': 'Tamamlanma Oranı'}),
@@ -222,6 +226,13 @@ class HakedisForm(forms.ModelForm):
         }
 
 class OdemeForm(forms.ModelForm):
+    # ÇÖZÜM: Tutar alanını CharField olarak tanımlıyoruz ki virgül kabul etsin.
+    tutar = forms.CharField(
+        label="Tutar",
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '0,00', 'aria-label': 'Tutar'}),
+        required=True
+    )
+    
     # Zorunlu olmayan alanlar
     banka_adi = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Banka adı...', 'aria-label': 'Banka Adı'}))
     cek_no = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Çek No...', 'aria-label': 'Çek No'}))
@@ -235,10 +246,20 @@ class OdemeForm(forms.ModelForm):
             'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'İşlem Tarihi'}),
             'tedarikci': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Tedarikçi'}),
             'odeme_turu': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Ödeme Türü'}),
-            
-            # --- KRİTİK DEĞİŞİKLİK BURADA ---
-            # NumberInput yerine TextInput kullanıyoruz ki "virgül" yazabilelim.
-            'tutar': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '0,00', 'aria-label': 'Tutar'}),
-            
             'para_birimi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Para Birimi'}),
         }
+
+    # "Sayı Girin" hatasını çözen kısım:
+    def clean_tutar(self):
+        tutar = self.cleaned_data.get('tutar')
+        if tutar:
+            # Gelen string değerdeki virgülü noktaya çeviriyoruz
+            if isinstance(tutar, str):
+                tutar = tutar.replace(',', '.')
+            
+            try:
+                # Sayıya çevirmeyi deniyoruz
+                return Decimal(tutar)
+            except:
+                raise forms.ValidationError("Lütfen geçerli bir sayı giriniz.")
+        return Decimal('0')

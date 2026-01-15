@@ -88,7 +88,8 @@
                             <label class="fw-bold text-success">Ödenecek Tutar</label>
                             <div class="input-group input-group-lg">
                                 {{ form.tutar }}
-                                {{ form.para_birimi }} </div>
+                                {{ form.para_birimi }} 
+                            </div>
                             <div class="form-text small text-primary">
                                 <i class="fas fa-info-circle"></i> Sağdan fatura seçerek otomatik doldurabilirsiniz.
                             </div>
@@ -209,9 +210,9 @@
             });
 
             if (tutarInput && toplam > 0) {
-                // DÜZELTME: Django hata vermesin diye NOKTA (.) ile formatlıyoruz.
-                // 10500.50 şeklinde gider, Django bunu sorunsuz kaydeder.
-                tutarInput.value = toplam.toFixed(2);
+                // Türkiye formatı için virgüllü gösterim (Görsel olarak)
+                // Backend yine de float bekleyeceği için views.py'da replace işlemi zaten var.
+                tutarInput.value = toplam.toFixed(2).replace('.', ','); 
             } else if (tutarInput) {
                 tutarInput.value = ''; 
             }
@@ -261,7 +262,7 @@
                     }
                 }
             });
-            // Tetikle
+            // Sayfa yüklendiğinde tetikle (Eğer eski veri varsa gelsin)
             odemeTuruSelect.dispatchEvent(new Event('change'));
         }
     });
