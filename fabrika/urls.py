@@ -56,6 +56,9 @@ urlpatterns = [
     path('debug/stok/<int:malzeme_id>/', views.stok_rontgen),
     path('stok/gecmis/<int:malzeme_id>/', views.stok_hareketleri, name='stok_hareketleri'),
     path('rapor/envanter/', views.envanter_raporu, name='envanter_raporu'),
+    path('hakedis/ekle/<int:siparis_id>/', views.hakedis_ekle, name='hakedis_ekle'),
+    path('odeme/yap/', views.odeme_yap, name='odeme_yap'),
+    path('cari/ekstre/<int:tedarikci_id>/', views.cari_ekstre, name='cari_ekstre'),
     
     
     # 8. Yazdırma & Çıktı

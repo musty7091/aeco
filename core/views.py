@@ -7,6 +7,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
 from django.http import HttpResponse
+from itertools import chain
+from operator import attrgetter
 from .models import (
     Kategori, IsKalemi, Tedarikci, Depo, Malzeme, 
     MalzemeTalep, Teklif, SatinAlma, DepoHareket,
@@ -14,9 +16,9 @@ from .models import (
 )
 from .models import Fatura
 from .forms import FaturaGirisForm
-from .forms import DepoTransferForm
+from .forms import DepoTransferForm, OdemeForm
 from .utils import tcmb_kur_getir
-from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm
+from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm, HakedisForm
 
 # ========================================================
 # 0. YARDIMCI GÜVENLİK FONKSİYONU
@@ -422,23 +424,49 @@ def depo_dashboard(request):
 
 @login_required
 def odeme_dashboard(request):
+    """
+    Finansal durumun özetlendiği ana ekran.
+    """
     if not yetki_kontrol(request.user, ['MUHASEBE_FINANS', 'YONETICI']):
         return redirect('erisim_engellendi')
-    
-    bugun = timezone.now().date()
-    tum_cekler = Odeme.objects.filter(odeme_turu='cek').order_by('cek_vade_tarihi')
-    gecikmisler = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__lt=bugun)
-    yaklasanlar = tum_cekler.filter(cek_durumu='beklemede', cek_vade_tarihi__gte=bugun, cek_vade_tarihi__lte=bugun + timezone.timedelta(days=30))
-    toplam_risk = sum(c.tl_tutar for c in tum_cekler.filter(cek_durumu='beklemede'))
-    son_hakedisler = Hakedis.objects.all().order_by('-tarih')[:10]
-    
+
+    # 1. Onaylanmış Hakedişlerin Toplamı (Taşeron Borcu)
+    hakedis_toplam = Hakedis.objects.aggregate(Sum('odenecek_net_tutar'))['odenecek_net_tutar__sum'] or 0
+
+    # 2. Malzeme Faturalarının Toplamı (Tedarikçi Borcu)
+    # Not: Burada fatura tutarını manuel hesaplıyoruz, ileride Fatura modeli eklenirse oradan çekeriz.
+    # Şimdilik: Teslim edilen miktar * Birim Fiyat * Kur
+    malzeme_borcu = 0
+    malzeme_siparisleri = SatinAlma.objects.filter(teklif__malzeme__isnull=False)
+    for sip in malzeme_siparisleri:
+        try:
+            tutar = float(sip.teslim_edilen) * float(sip.teklif.birim_fiyat) * float(sip.teklif.kur_degeri)
+            malzeme_borcu += tutar
+        except:
+            pass
+
+    # 3. Genel Toplam Borç
+    toplam_borc = float(hakedis_toplam) + malzeme_borcu
+
+    # 4. Son Eklenen Hakedişler (Listelemek için)
+    son_hakedisler = Hakedis.objects.select_related('satinalma__teklif__tedarikci').order_by('-tarih')[:5]
+
+    # 5. Son Eklenen Malzeme Alımları (Ödeme bekleyen potansiyel faturalar)
+    son_alimlar = SatinAlma.objects.filter(
+        teklif__malzeme__isnull=False, 
+        teslimat_durumu__in=['kismi', 'tamamlandi']
+    ).order_by('-created_at')[:5]
+
     context = {
-        'gecikmisler': gecikmisler,
-        'yaklasanlar': yaklasanlar,
-        'toplam_risk': toplam_risk,
+        'hakedis_toplam': hakedis_toplam,
+        'malzeme_borcu': malzeme_borcu,
+        'toplam_borc': toplam_borc,
         'son_hakedisler': son_hakedisler,
-        'bugun': bugun
+        'son_alimlar': son_alimlar,
+        # Çekler modülü daha sonra detaylanacak, şimdilik boş geçiyoruz
+        'vadesi_gelen_cekler': [] 
     }
+    
     return render(request, 'odeme_dashboard.html', context)
 
 @login_required
@@ -1233,6 +1261,251 @@ def envanter_raporu(request):
             })
 
     return render(request, 'envanter_raporu.html', {'rapor_data': rapor_data})
+
+@login_required
+def hakedis_ekle(request, siparis_id):
+    # Yetki Kontrolü
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+    
+    # Güvenlik: Malzeme siparişiyse buraya girmesin
+    if siparis.teklif.malzeme:
+        messages.warning(request, "Malzeme siparişleri için Hakediş değil, Fatura girmelisiniz.")
+        return redirect('fatura_girisi', siparis_id=siparis.id)
+
+    if request.method == 'POST':
+        form = HakedisForm(request.POST)
+        if form.is_valid():
+            hakedis = form.save(commit=False)
+            hakedis.satinalma = siparis
+            
+            # 1. Hakedişi Kaydet (Hesaplamalar models.py içinde yapılacak)
+            hakedis.save() 
+            
+            # 2. Sipariş İlerlemesini Güncelle (Miktar Bazlı)
+            # Decimal ile Float çarpışmasını önlemek için float'a çeviriyoruz
+            toplam_is = float(siparis.toplam_miktar)
+            yapilan_yuzde = float(hakedis.tamamlanma_orani)
+            
+            yapilan_miktar = (toplam_is * yapilan_yuzde) / 100.0
+            
+            # Teslim edilen (Tamamlanan) miktarı artır
+            siparis.teslim_edilen += yapilan_miktar
+            siparis.save()
+            
+            messages.success(request, f"✅ Hakediş #{hakedis.hakedis_no} başarıyla kaydedildi.")
+            return redirect('siparis_listesi')
+    else:
+        initial_data = {
+            'tarih': timezone.now().date(),
+            'donem_baslangic': timezone.now().date(),
+            'donem_bitis': timezone.now().date(),
+            # Bir sonraki hakediş numarasını otomatik bul (Opsiyonel Güzellik)
+            'hakedis_no': Hakedis.objects.filter(satinalma=siparis).count() + 1
+        }
+        form = HakedisForm(initial=initial_data)
+
+    return render(request, 'hakedis_ekle.html', {'form': form, 'siparis': siparis})
+
+@login_required
+def odeme_yap(request):
+    if not yetki_kontrol(request.user, ['MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    # Hem GET hem POST'tan tedarikçiyi yakala
+    tedarikci_id = request.GET.get('tedarikci_id') or request.POST.get('tedarikci')
+    
+    secilen_tedarikci = None
+    acik_kalemler = [] 
+    
+    toplam_borc = 0
+    toplam_odenen = 0
+    kalan_bakiye = 0
+    
+    if tedarikci_id:
+        try:
+            secilen_tedarikci = Tedarikci.objects.get(id=tedarikci_id)
+            
+            # A) HAKEDİŞLER
+            from django.db.models import F
+            hakedisler = Hakedis.objects.filter(
+                onay_durumu=True,
+                satinalma__teklif__tedarikci_id=secilen_tedarikci.id
+            ).filter(
+                odenecek_net_tutar__gt=F('fiili_odenen_tutar')
+            )
+            
+            for hk in hakedisler:
+                kalan = float(hk.odenecek_net_tutar) - float(hk.fiili_odenen_tutar)
+                if kalan > 0.1: # Ufak kuruş farklarını gösterme
+                    acik_kalemler.append({
+                        'id': hk.id,
+                        'tip': 'hakedis',
+                        'tarih': hk.tarih,
+                        'aciklama': f"Hakediş #{hk.hakedis_no} ({hk.satinalma.teklif.is_kalemi.isim})",
+                        'ana_tutar': hk.odenecek_net_tutar,
+                        'kalan_tutar': kalan
+                    })
+                    toplam_borc += kalan
+
+            # B) MALZEME ALIMLARI
+            malzemeler = SatinAlma.objects.filter(
+                teklif__tedarikci=secilen_tedarikci, 
+                teklif__malzeme__isnull=False
+            ).exclude(teslimat_durumu='bekliyor')
+            
+            for mal in malzemeler:
+                # Fatura Tutarı Hesabı
+                fatura_tutari = float(mal.teslim_edilen) * float(mal.teklif.birim_fiyat) * float(mal.teklif.kur_degeri)
+                # KDV Ekleme (Basitleştirilmiş)
+                if mal.teklif.kdv_orani > 0:
+                    fatura_tutari = fatura_tutari * (1 + (mal.teklif.kdv_orani / 100))
+                
+                kalan = fatura_tutari - float(mal.fiili_odenen_tutar)
+                
+                if kalan > 1:
+                    acik_kalemler.append({
+                        'id': mal.id,
+                        'tip': 'malzeme',
+                        'tarih': mal.created_at.date(),
+                        'aciklama': f"Malzeme: {mal.teklif.malzeme.isim} ({mal.teslim_edilen} Br.)",
+                        'ana_tutar': fatura_tutari,
+                        'kalan_tutar': kalan
+                    })
+                    toplam_borc += kalan
+
+            kalan_bakiye = toplam_borc 
+
+        except Tedarikci.DoesNotExist:
+            pass
+
+    if request.method == 'POST':
+        form = OdemeForm(request.POST)
+        if form.is_valid():
+            odeme = form.save()
+            
+            # --- BORÇ KAPAMA ---
+            secilenler = request.POST.getlist('secilen_kalem')
+            dagitilacak_tutar = float(odeme.tutar)
+            
+            for secim in secilenler:
+                if dagitilacak_tutar <= 0: break
+                
+                try:
+                    tip, id_str = secim.split('_')
+                    obj_id = int(id_str)
+                    
+                    if tip == 'hakedis':
+                        hk = Hakedis.objects.get(id=obj_id)
+                        borc = float(hk.odenecek_net_tutar) - float(hk.fiili_odenen_tutar)
+                        odenen = min(dagitilacak_tutar, borc)
+                        hk.fiili_odenen_tutar = float(hk.fiili_odenen_tutar) + odenen
+                        hk.save()
+                        dagitilacak_tutar -= odenen
+                        
+                    elif tip == 'malzeme':
+                        mal = SatinAlma.objects.get(id=obj_id)
+                        # Tekrar hesapla
+                        fatura_tutari = float(mal.teslim_edilen) * float(mal.teklif.birim_fiyat) * float(mal.teklif.kur_degeri)
+                        if mal.teklif.kdv_orani > 0:
+                            fatura_tutari = fatura_tutari * (1 + (mal.teklif.kdv_orani / 100))
+                        
+                        borc = fatura_tutari - float(mal.fiili_odenen_tutar)
+                        odenen = min(dagitilacak_tutar, borc)
+                        mal.fiili_odenen_tutar = float(mal.fiili_odenen_tutar) + odenen
+                        mal.save()
+                        dagitilacak_tutar -= odenen
+                except:
+                    continue
+            
+            messages.success(request, f"✅ Ödeme kaydedildi. (Tutar: {odeme.tutar})")
+            return redirect(f"/odeme/yap/?tedarikci_id={odeme.tedarikci.id}")
+        else:
+            # Form geçersizse hata mesajı göster
+            messages.error(request, "Ödeme kaydedilemedi. Lütfen tutar formatını kontrol ediniz (Örn: 1000,50).")
+    
+    else:
+        initial_data = {'tarih': timezone.now().date()}
+        if secilen_tedarikci:
+            initial_data['tedarikci'] = secilen_tedarikci
+        form = OdemeForm(initial=initial_data)
+
+    context = {
+        'form': form,
+        'tedarikciler': Tedarikci.objects.all(),
+        'secilen_tedarikci': secilen_tedarikci,
+        'acik_kalemler': acik_kalemler,
+        'toplam_borc': toplam_borc,
+        'kalan_bakiye': kalan_bakiye,
+    }
+
+    return render(request, 'odeme_yap.html', context)
+
+@login_required
+def cari_ekstre(request, tedarikci_id):
+    """
+    Seçilen tedarikçinin tüm borç (Malzeme/Hakediş) ve alacak (Ödeme) 
+    hareketlerini tarih sırasına göre listeler.
+    """
+    tedarikci = get_object_or_404(Tedarikci, id=tedarikci_id)
+    
+    # 1. Borçlar (Hakedişler)
+    hakedisler = Hakedis.objects.filter(satinalma__teklif__tedarikci=tedarikci, onay_durumu=True)
+    
+    # 2. Borçlar (Malzemeler)
+    malzemeler = SatinAlma.objects.filter(teklif__tedarikci=tedarikci, teklif__malzeme__isnull=False).exclude(teslimat_durumu='bekliyor')
+    
+    # 3. Alacaklar (Ödemeler)
+    odemeler = Odeme.objects.filter(tedarikci=tedarikci)
+    
+    # Hepsini tek bir listede birleştir
+    # Her objeye 'tip' ve 'tutar_islem' etiketi ekliyoruz ki template'de ayırabilelim
+    
+    hareketler = []
+    
+    for h in hakedisler:
+        hareketler.append({
+            'tarih': h.tarih,
+            'aciklama': f"Hakediş #{h.hakedis_no} - {h.satinalma.teklif.is_kalemi.isim}",
+            'borc': h.odenecek_net_tutar,
+            'alacak': 0,
+            'tip': 'hakedis'
+        })
+        
+    for m in malzemeler:
+        try:
+            tutar = float(m.teslim_edilen) * float(m.teklif.birim_fiyat) * float(m.teklif.kur_degeri)
+            if tutar > 0:
+                hareketler.append({
+                    'tarih': m.created_at.date(),
+                    'aciklama': f"Malzeme Alımı: {m.teklif.malzeme.isim}",
+                    'borc': tutar,
+                    'alacak': 0,
+                    'tip': 'malzeme'
+                })
+        except: pass
+        
+    for o in odemeler:
+        hareketler.append({
+            'tarih': o.tarih,
+            'aciklama': f"Ödeme Çıkışı ({o.get_odeme_turu_display()})",
+            'borc': 0,
+            'alacak': o.tutar,
+            'tip': 'odeme'
+        })
+        
+    # Tarihe göre sırala (Eskiden yeniye)
+    hareketler.sort(key=lambda x: x['tarih'])
+    
+    # Kümülatif Bakiye Hesabı
+    bakiye = 0
+    for h in hareketler:
+        bakiye = bakiye + float(h['borc']) - float(h['alacak'])
+        h['bakiye'] = bakiye
+        
+    return render(request, 'cari_ekstre.html', {'tedarikci': tedarikci, 'hareketler': hareketler})
 
 def cikis_yap(request):
     logout(request)

@@ -55,7 +55,7 @@
                             <th class="ps-4">Tedarikçi Firma</th>
                             <th>İş / Malzeme</th>
                             <th class="text-center">Sipariş</th>
-                            <th class="text-center">Gelen (Stok)</th>
+                            <th class="text-center">İlerleme / Stok</th>
                             <th class="text-center">Durum</th>
                             <th style="width: 15%;">Tamamlanma</th>
                             <th class="text-end pe-4">İşlemler</th>
@@ -72,10 +72,10 @@
                             <td>
                                 {% if siparis.teklif.malzeme %}
                                     <div class="text-primary fw-bold"><i class="fas fa-box me-1"></i> {{ siparis.teklif.malzeme.isim }}</div>
-                                    <div class="small text-muted">Malzeme</div>
+                                    <div class="small text-muted">Malzeme Alımı</div>
                                 {% elif siparis.teklif.is_kalemi %}
-                                    <div class="text-danger fw-bold"><i class="fas fa-tools me-1"></i> {{ siparis.teklif.is_kalemi.isim }}</div>
-                                    <div class="small text-muted">Hizmet</div>
+                                    <div class="text-danger fw-bold"><i class="fas fa-hard-hat me-1"></i> {{ siparis.teklif.is_kalemi.isim }}</div>
+                                    <div class="small text-muted">Hizmet / Taşeron</div>
                                 {% else %}
                                     -
                                 {% endif %}
@@ -88,8 +88,13 @@
                                     {% else %}{{ siparis.teklif.is_kalemi.get_birim_display }}{% endif %}
                                 </span>
                             </td>
-                            <td class="text-center text-success fw-bold">
-                                {{ siparis.teslim_edilen|floatformat:0 }}
+                            
+                            <td class="text-center fw-bold">
+                                {% if siparis.teklif.malzeme %}
+                                    <span class="text-success">{{ siparis.teslim_edilen|floatformat:0 }}</span>
+                                {% else %}
+                                    <span class="text-primary">{{ siparis.teslim_edilen|floatformat:0 }}</span>
+                                {% endif %}
                             </td>
                             
                             <td class="text-center">
@@ -123,24 +128,31 @@
 
                             <td class="text-end pe-4">
                                 <div class="btn-group" role="group">
-                                    {% if siparis.kalan_fatura_miktar > 0 %}
-                                    <a href="{% url 'fatura_girisi' siparis.id %}" class="btn btn-sm btn-success text-white fw-bold" title="Fatura Gir">
-                                        <i class="fas fa-file-invoice-dollar"></i> Fatura
-                                    </a>
-                                    {% endif %}
-
-                                    {% if siparis.sanal_depoda_bekleyen > 0 %}
-                                    <a href="{% url 'depo_transfer' %}?siparis_id={{ siparis.id }}" class="btn btn-sm btn-primary fw-bold" title="Sanal Depodan Çek">
-                                        <i class="fas fa-truck-loading me-1"></i> SEVK ET
-                                    </a>
-                                    {% endif %}
-
                                     {% if siparis.teklif.malzeme %}
-                                    <a href="{% url 'stok_hareketleri' siparis.teklif.malzeme.id %}" class="btn btn-sm btn-secondary" title="Stok Geçmişi">
-                                        <i class="fas fa-history"></i>
-                                    </a>
+                                        {% if siparis.kalan_fatura_miktar > 0 %}
+                                        <a href="{% url 'fatura_girisi' siparis.id %}" class="btn btn-sm btn-success text-white fw-bold" title="Fatura Gir">
+                                            <i class="fas fa-file-invoice-dollar"></i> Fatura
+                                        </a>
+                                        {% endif %}
+
+                                        {% if siparis.sanal_depoda_bekleyen > 0 %}
+                                        <a href="{% url 'depo_transfer' %}?siparis_id={{ siparis.id }}" class="btn btn-sm btn-primary fw-bold" title="Sanal Depodan Çek">
+                                            <i class="fas fa-truck-loading me-1"></i> Sevk
+                                        </a>
+                                        {% endif %}
+                                        
+                                        <a href="{% url 'stok_hareketleri' siparis.teklif.malzeme.id %}" class="btn btn-sm btn-secondary" title="Stok Geçmişi">
+                                            <i class="fas fa-history"></i>
+                                        </a>
+
+                                    {% else %}
+                                        {% if siparis.kalan_miktar > 0 %}
+                                        <a href="{% url 'hakedis_ekle' siparis.id %}" class="btn btn-sm btn-dark text-warning fw-bold" title="Hakediş Girişi">
+                                            <i class="fas fa-file-signature me-1"></i> Hakediş
+                                        </a>
+                                        {% endif %}
                                     {% endif %}
-                                    
+
                                     <a href="{% url 'siparis_detay' siparis.id %}" class="btn btn-sm btn-outline-dark" title="Detay">
                                         <i class="fas fa-search"></i>
                                     </a>
@@ -158,7 +170,7 @@
 
     <div class="card shadow border-0" style="border-top: 5px solid #198754;">
         <div class="card-header bg-white text-success fw-bold py-3">
-            <i class="fas fa-archive me-2"></i> TAMAMLANAN SİPARİŞ GEÇMİŞİ (FİZİKSEL TESLİM ALINANLAR)
+            <i class="fas fa-archive me-2"></i> TAMAMLANAN SİPARİŞ GEÇMİŞİ (TESLİM ALINANLAR)
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -166,7 +178,7 @@
                     <thead class="table-light text-secondary small text-uppercase">
                         <tr>
                             <th class="ps-4">Tedarikçi</th>
-                            <th>Malzeme</th>
+                            <th>Malzeme / İş</th>
                             <th>Tarih</th>
                             <th class="text-center">Miktar</th>
                             <th class="text-center">Durum</th>
@@ -181,7 +193,7 @@
                                 {% if siparis.teklif.malzeme %}
                                     <i class="fas fa-box text-secondary me-1"></i> {{ siparis.teklif.malzeme.isim }}
                                 {% else %}
-                                    <i class="fas fa-tools text-secondary me-1"></i> {{ siparis.teklif.is_kalemi.isim }}
+                                    <i class="fas fa-hard-hat text-secondary me-1"></i> {{ siparis.teklif.is_kalemi.isim }}
                                 {% endif %}
                             </td>
                             <td>{{ siparis.siparis_tarihi|date:"d.m.Y" }}</td>

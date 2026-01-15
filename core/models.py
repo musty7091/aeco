@@ -24,7 +24,7 @@ class Kategori(models.Model):
     isim = models.CharField(max_length=100, verbose_name="Kategori Adı")
     
     def __str__(self):
-        return self.isim
+        return self.isim if self.isim else "Tanımsız Kategori"
     
     class Meta:
         verbose_name_plural = "1. İmalat Türleri"
@@ -61,7 +61,7 @@ class Tedarikci(models.Model):
     adres = models.TextField(blank=True)
     
     def __str__(self):
-        return self.firma_unvani
+        return self.firma_unvani if self.firma_unvani else "Tanımsız Firma"
     
     class Meta:
         verbose_name_plural = "Tedarikçiler"
@@ -95,7 +95,7 @@ class Malzeme(models.Model):
     
     isim = models.CharField(max_length=200, verbose_name="Malzeme Adı (Örn: Ø14 Demir)")
     kategori = models.CharField(max_length=20, choices=KATEGORILER, default='genel', verbose_name="Malzeme Grubu")
-    marka = models.CharField(max_length=100, blank=True, verbose_name="Marka / Model", help_text="Örn: Bosch, Vitra vb.")
+    marka = models.CharField(max_length=100, blank=True, verbose_name="Marka / Model")
     birim = models.CharField(max_length=20, choices=IsKalemi.BIRIMLER, default='adet')
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
     kritik_stok = models.FloatField(default=10, verbose_name="Kritik Stok Uyarı Limiti")
@@ -142,14 +142,14 @@ class MalzemeTalep(models.Model):
 
     talep_eden = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Talep Eden")
     
-    malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
-    is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.CASCADE, related_name='talepler', null=True, blank=True, verbose_name="İş Kalemi (Hizmet/Taşeron)")
+    malzeme = models.ForeignKey(Malzeme, on_delete=models.SET_NULL, related_name='talepler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
+    is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.SET_NULL, related_name='talepler', null=True, blank=True, verbose_name="İş Kalemi (Hizmet/Taşeron)")
     
     miktar = models.FloatField(verbose_name="İstenen Miktar")
     oncelik = models.CharField(max_length=10, choices=ONCELIKLER, default='normal', verbose_name="Aciliyet Durumu")
     
-    proje_yeri = models.CharField(max_length=200, blank=True, verbose_name="Kullanılacak Yer")
-    aciklama = models.TextField(blank=True, verbose_name="Notlar")
+    proje_yeri = models.CharField(max_length=200, blank=True, null=True, verbose_name="Kullanılacak Yer")
+    aciklama = models.TextField(blank=True, null=True, verbose_name="Notlar")
     
     durum = models.CharField(max_length=20, choices=DURUMLAR, default='bekliyor')
     tarih = models.DateTimeField(default=timezone.now, verbose_name="Talep Tarihi")
@@ -164,7 +164,9 @@ class MalzemeTalep(models.Model):
             raise ValidationError("Aynı anda hem Malzeme hem Hizmet seçemezsiniz.")
 
     def __str__(self):
-        ad = self.malzeme.isim if self.malzeme else (self.is_kalemi.isim if self.is_kalemi else "Tanımsız")
+        if self.malzeme: ad = self.malzeme.isim
+        elif self.is_kalemi: ad = self.is_kalemi.isim
+        else: ad = "Silinmiş/Tanımsız Kalem"
         return f"Talep: {ad}"
 
     class Meta:
@@ -208,26 +210,19 @@ class Teklif(models.Model):
     olusturulma_tarihi = models.DateTimeField(auto_now_add=True)
     
     def clean(self):
+        """Veri tutarlılığı kontrolü"""
         if not self.is_kalemi and not self.malzeme:
             raise ValidationError("Lütfen ya bir 'İş Kalemi' ya da bir 'Malzeme' seçiniz.")
         if self.is_kalemi and self.malzeme:
             raise ValidationError("Aynı anda hem İş Kalemi hem Malzeme seçemezsiniz.")
 
     def save(self, *args, **kwargs):
-        kdv_carpani = 0 if self.kdv_orani == -1 else self.kdv_orani
-        if self.kdv_dahil_mi:
-            self.birim_fiyat = self.birim_fiyat / (1 + (kdv_carpani / 100))
-            self.kdv_dahil_mi = False
-            
-        if self.pk is None and self.talep:
-            if self.talep.durum == 'bekliyor':
-                self.talep.durum = 'islemde'
-                self.talep.save()
-                
+        """Hakediş hesaplamalarından arındırılmış temiz save metodu"""
         super(Teklif, self).save(*args, **kwargs)
 
     @property
     def toplam_fiyat_tl(self):
+        """KDV dahil toplam TL tutarı"""
         kdv_carpani = 0 if self.kdv_orani == -1 else self.kdv_orani
         tutar_tl = float(self.birim_fiyat) * float(self.kur_degeri) * float(self.miktar)
         kdvli_tutar = tutar_tl * (1 + (kdv_carpani / 100))
@@ -235,6 +230,7 @@ class Teklif(models.Model):
     
     @property
     def toplam_fiyat_orijinal(self):
+        """KDV dahil orijinal para birimi tutarı"""
         kdv_carpani = 0 if self.kdv_orani == -1 else self.kdv_orani
         ham_tutar = float(self.birim_fiyat) * float(self.miktar)
         kdvli_tutar = ham_tutar * (1 + (kdv_carpani / 100))
@@ -242,6 +238,7 @@ class Teklif(models.Model):
 
     @property
     def birim_fiyat_kdvli(self):
+        """KDV dahil birim fiyat"""
         kdv_carpani = 0 if self.kdv_orani == -1 else self.kdv_orani
         return float(self.birim_fiyat) * (1 + (kdv_carpani / 100))
 
@@ -273,9 +270,11 @@ class SatinAlma(models.Model):
     # Miktar Takibi
     toplam_miktar = models.FloatField(default=0, verbose_name="Sipariş Edilen Toplam")
     
+    
     # İki ayrı sayaç
     teslim_edilen = models.FloatField(default=0, verbose_name="Depoya Giren (Fiziksel)")
     faturalanan_miktar = models.FloatField(default=0, verbose_name="Faturası Gelen (Finansal)")
+    fiili_odenen_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Şu Ana Kadar Ödenen")
     
     aciklama = models.TextField(blank=True, verbose_name="Notlar")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -318,7 +317,7 @@ class SatinAlma(models.Model):
         return max(girisler - cikislar, 0)
 
     def __str__(self):
-        return f"{self.teklif.tedarikci} - {self.teklif.malzeme.isim} (Kalan: {self.kalan_miktar})"
+        return f"{self.teklif.tedarikci} - {self.teklif.malzeme.isim if self.teklif.malzeme else self.teklif.is_kalemi.isim} (Kalan: {self.kalan_miktar})"
 
     class Meta:
         verbose_name = "4. Satınalma & Siparişler"
@@ -330,94 +329,60 @@ class SatinAlma(models.Model):
 # ==========================================
 
 class GiderKategorisi(models.Model):
-    isim = models.CharField(max_length=100)
+    isim = models.CharField(max_length=100, verbose_name="Gider Kategorisi")
     
     def __str__(self):
-        return self.isim
+        # Eğer isim bir şekilde boş kalırsa hata vermemesi için
+        return self.isim if self.isim else "Tanımsız Kategori"
     
     class Meta:
+        verbose_name = "Gider Tanımı"
         verbose_name_plural = "Gider Tanımları"
 
 class Harcama(models.Model):
-    PARA_BIRIMLERI = [('TRY', 'TL'), ('USD', 'USD'), ('EUR', 'EUR'), ('GBP', 'GBP')]
-
-    kategori = models.ForeignKey(GiderKategorisi, on_delete=models.CASCADE, related_name='harcamalar')
-    aciklama = models.CharField(max_length=200)
-    tutar = models.FloatField()
-    para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMLERI, default='TRY')
-    tarih = models.DateField(default=timezone.now)
-    dekont = models.FileField(upload_to='harcamalar/', blank=True, null=True)
-
-    @property
-    def tl_tutar(self):
-        return self.tutar
-
-    def __str__(self):
-        return f"{self.aciklama} - {self.tutar}"
-    
-    class Meta:
-        verbose_name_plural = "5. Harcamalar (Gider)"
-
-# ==========================================
-# 8. ÖDEMELER
-# ==========================================
-
-class Odeme(models.Model):
-    ODEME_TURLERI = [
-        ('nakit', 'Nakit / Havale'),
-        ('cek', 'Çek'),
-        ('kk', 'Kredi Kartı'),
+    PARA_BIRIMLERI = [
+        ('TRY', '₺ Türk Lirası'), 
+        ('USD', '$ Amerikan Doları'), 
+        ('EUR', '€ Euro'), 
+        ('GBP', '£ İngiliz Sterlini')
     ]
-    CEK_DURUMLARI = [
-        ('beklemede', '⏳ Vadesi Bekleniyor'),
-        ('odendi', '✅ Ödendi / Tahsil Edildi'),
-        ('karsiliksiz', '❌ Karşılıksız / İptal'),
-    ]
-    PARA_BIRIMLERI = [('TRY', 'TL'), ('USD', 'USD'), ('EUR', 'EUR'), ('GBP', 'GBP')]
-    
-    tedarikci = models.ForeignKey(Tedarikci, on_delete=models.CASCADE, related_name='odemeler')
-    
-    ilgili_satinalma = models.ForeignKey(
-        SatinAlma, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True,
-        verbose_name="İlgili Satınalma / Fatura"
+
+    # Kategori silinse bile harcama kaydı kalsın istiyorsak SET_NULL, 
+    # kategoriyle beraber silinsin istiyorsak CASCADE kalabilir.
+    kategori = models.ForeignKey(
+        GiderKategorisi, 
+        on_delete=models.CASCADE, 
+        related_name='harcamalar',
+        verbose_name="Gider Türü"
     )
-    
-    tarih = models.DateField(default=timezone.now, verbose_name="İşlem Tarihi")
+    aciklama = models.CharField(max_length=200, verbose_name="Harcama Açıklaması")
     tutar = models.FloatField(verbose_name="Tutar")
-    para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMLERI, default='TRY')
+    para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMLERI, default='TRY', verbose_name="Para Birimi")
+    
+    # İleride kur farkı takibi yapabilmek için kur_degeri eklemek iyi bir pratik olur
     kur_degeri = models.DecimalField(max_digits=10, decimal_places=4, default=1.0000, verbose_name="İşlem Kuru")
     
-    odeme_turu = models.CharField(max_length=10, choices=ODEME_TURLERI, default='nakit')
-    
-    cek_durumu = models.CharField(
-        max_length=20, 
-        choices=CEK_DURUMLARI, 
-        default='beklemede', 
-        verbose_name="Çek Durumu",
-        help_text="Sadece Çek ödemeleri için kullanılır."
-    )
-    
-    aciklama = models.CharField(max_length=200, blank=True)
-    
-    cek_vade_tarihi = models.DateField(blank=True, null=True, verbose_name="Çek Vade Tarihi")
-    cek_numarasi = models.CharField(max_length=50, blank=True, verbose_name="Çek No")
-    cek_banka = models.CharField(max_length=100, blank=True, verbose_name="Banka Adı")
-    cek_sube = models.CharField(max_length=100, blank=True, verbose_name="Şube")
-    cek_gorseli = models.ImageField(upload_to='cekler/', blank=True, null=True)
-    dekont = models.FileField(upload_to='odemeler/', blank=True, null=True)
+    tarih = models.DateField(default=timezone.now, verbose_name="Harcama Tarihi")
+    dekont = models.FileField(upload_to='harcamalar/', blank=True, null=True, verbose_name="Dekont / Fiş")
 
     @property
     def tl_tutar(self):
-        return float(self.tutar) * float(self.kur_degeri)
+        """Harcamanın TL karşılığını kur ile çarparak hesaplar."""
+        try:
+            return float(self.tutar) * float(self.kur_degeri)
+        except (TypeError, ValueError):
+            return float(self.tutar)
 
     def __str__(self):
-        return f"{self.tedarikci} - {self.tutar} {self.para_birimi}"
-
+        # Admin panelinde silinmiş veya hatalı verilerle karşılaşınca çökmemesi için
+        kat_ismi = self.kategori.isim if self.kategori else "Kategorisiz"
+        return f"{self.aciklama} ({kat_ismi}) - {self.tutar} {self.para_birimi}"
+    
     class Meta:
-        verbose_name_plural = "6. Ödemeler"
+        verbose_name = "5. Harcama (Gider)"
+        verbose_name_plural = "5. Harcamalar (Gider)"
+        ordering = ['-tarih']
+
 
 # ==========================================
 # 9. HAREKET GEÇMİŞİ & SEVKİYAT
@@ -514,37 +479,107 @@ class DepoTransfer(models.Model):
 # ==========================================
 
 class Hakedis(models.Model):
-    satinalma = models.ForeignKey(SatinAlma, on_delete=models.CASCADE, related_name='hakedisler', verbose_name="İlgili Sözleşme/Sipariş", null=True, blank=True)
+    # 'SatinAlma' tırnak içinde yazılmalı. Böylece sınıfın nerede tanımlandığı önemsizleşir.
+    satinalma = models.ForeignKey('SatinAlma', on_delete=models.CASCADE, related_name='hakedisler', verbose_name="İlgili Sözleşme")
     
     hakedis_no = models.PositiveIntegerField(default=1, verbose_name="Hakediş No")
-    tarih = models.DateField(default=timezone.now)
+    tarih = models.DateField(default=timezone.now, verbose_name="Hakediş Tarihi")
     
-    donem_baslangic = models.DateField(verbose_name="Dönem Başı")
-    donem_bitis = models.DateField(verbose_name="Dönem Sonu")
+    donem_baslangic = models.DateField(verbose_name="Dönem Başı", null=True, blank=True)
+    donem_bitis = models.DateField(verbose_name="Dönem Sonu", null=True, blank=True)
     
-    tamamlanma_orani = models.FloatField(verbose_name="Bu Dönem Tamamlanma (%)", help_text="Örn: 10 girerseniz işin %10'u bitmiş sayılır.")
+    # --- HESAPLAMA ---
+    aciklama = models.TextField(blank=True, verbose_name="Yapılan İşin Açıklaması")
     
-    malzeme_zayiati = models.FloatField(default=0, verbose_name="Malzeme / Zayiat Kesintisi (TL)")
-    diger_kesintiler = models.FloatField(default=0, verbose_name="Diğer Kesintiler (Avans/Stopaj vb.)")
+    # İster Yüzde ile, İster Tutar ile giriş yapabilsin
+    tamamlanma_orani = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="Bu Dönem İlerleme (%)")
     
-    onay_durumu = models.BooleanField(default=False, verbose_name="Hakediş Onaylandı mı?")
+    # --- FİNANSAL VERİLER ---
+    brut_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Hakediş Tutarı (KDV Hariç)")
     
+    kdv_orani = models.PositiveIntegerField(default=20, verbose_name="KDV (%)")
+    kdv_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="KDV Tutarı")
+    
+    # KESİNTİLER
+    stopaj_orani = models.PositiveIntegerField(default=0, verbose_name="Stopaj (%)", help_text="Genelde %3")
+    stopaj_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Kesilen Stopaj")
+    
+    teminat_orani = models.PositiveIntegerField(default=0, verbose_name="Teminat (%)", help_text="Genelde %5 veya %10")
+    teminat_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Kesilen Teminat")
+    
+    avans_kesintisi = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Avans Kesintisi")
+    diger_kesintiler = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Malzeme/Ceza vb.")
+    
+    # SONUÇ
+    odenecek_net_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Ödenecek Net Tutar")
+    fiili_odenen_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Şu Ana Kadar Ödenen")
+
+    onay_durumu = models.BooleanField(default=False, verbose_name="Onaylandı")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    @property
-    def hakedis_tutari(self):
-        sozlesme_tutari = self.satinalma.teklif.toplam_fiyat_tl
-        return sozlesme_tutari * (self.tamamlanma_orani / 100)
+    def save(self, *args, **kwargs):
+        from decimal import Decimal
 
-    @property
-    def odenecek_net_tutar(self):
-        return self.hakedis_tutari - (self.malzeme_zayiati + self.diger_kesintiler)
+        # Yardımcı fonksiyon: Her şeyi güvenli Decimal'e çevirir
+        def to_decimal(val):
+            if val is None: return Decimal('0')
+            return Decimal(str(val))
+
+        # 1. Sözleşme Tutarını Hesapla
+        try:
+            teklif = self.satinalma.teklif
+            
+            # Tüm değerleri tek tek Decimal'e çevirip çarpıyoruz
+            birim_fiyat = to_decimal(teklif.birim_fiyat)
+            kur = to_decimal(teklif.kur_degeri)
+            miktar = to_decimal(self.satinalma.toplam_miktar)
+            
+            sozlesme_tutari = birim_fiyat * kur * miktar
+        except:
+            sozlesme_tutari = Decimal('0.00')
+            
+        # 2. Brüt Tutar Hesabı
+        if self.tamamlanma_orani:
+            oran = to_decimal(self.tamamlanma_orani)
+            # 100 sayısını da Decimal yapıyoruz ki float karışmasın
+            yuzde = oran / Decimal('100')
+            self.brut_tutar = sozlesme_tutari * yuzde
+        else:
+            self.brut_tutar = Decimal('0.00')
+            
+        # 3. KDV ve Kesintiler
+        # Tüm oranları güvenli çevir
+        kdv_orani = to_decimal(self.kdv_orani)
+        stopaj_orani = to_decimal(self.stopaj_orani)
+        teminat_orani = to_decimal(self.teminat_orani)
+        yuz = Decimal('100')
+
+        self.kdv_tutari = self.brut_tutar * (kdv_orani / yuz)
+        self.stopaj_tutari = self.brut_tutar * (stopaj_orani / yuz)
+        self.teminat_tutari = self.brut_tutar * (teminat_orani / yuz)
+        
+        # 4. Net Hesaplama
+        # Avans ve Diğer Kesintiler zaten DecimalField ama yine de garantiye alalım
+        avans = to_decimal(self.avans_kesintisi)
+        diger = to_decimal(self.diger_kesintiler)
+        
+        toplam_alacak = self.brut_tutar + self.kdv_tutari
+        toplam_kesinti = self.stopaj_tutari + self.teminat_tutari + avans + diger
+        
+        self.odenecek_net_tutar = toplam_alacak - toplam_kesinti
+        
+        super(Hakedis, self).save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.satinalma.teklif.tedarikci} - Hakediş #{self.hakedis_no}"
+        try:
+            tedarikci_adi = self.satinalma.teklif.tedarikci.firma_unvani
+        except (AttributeError, models.ObjectDoesNotExist):
+            tedarikci_adi = "Bilinmeyen Tedarikçi"
+        return f"Hakediş #{self.hakedis_no} - {tedarikci_adi}"
 
     class Meta:
-        verbose_name_plural = "Taşeron Hakedişleri"
+        verbose_name_plural = "6. Taşeron Hakedişleri"
+        ordering = ['-tarih']
 
 
 class Fatura(models.Model):
@@ -576,8 +611,58 @@ class Fatura(models.Model):
             self.satinalma.save()
 
     def __str__(self):
-        return f"Fatura #{self.fatura_no} - {self.satinalma.teklif.tedarikci}"
+        try:
+            ted_adi = self.satinalma.teklif.tedarikci.firma_unvani
+        except:
+            ted_adi = "Bilinmeyen"
+        return f"Fatura #{self.fatura_no} - {ted_adi}"
 
     class Meta:
         verbose_name = "Alış Faturası"
         verbose_name_plural = "Alış Faturaları"
+
+class Odeme(models.Model):
+    ODEME_TURLERI = [
+        ('nakit', 'Nakit'),
+        ('havale', 'Havale / EFT'),
+        ('cek', 'Çek'),
+    ]
+    PARA_BIRIMLERI = [
+        ('TRY', 'TL'),
+        ('USD', 'USD'),
+        ('EUR', 'EUR'),
+    ]
+
+    tedarikci = models.ForeignKey(Tedarikci, on_delete=models.CASCADE, related_name='odemeler', verbose_name="Ödenen Firma")
+    
+    # İsteğe bağlı: Ödeme direkt bir hakedişe veya siparişe yapılıyorsa seçilir
+    bagli_hakedis = models.ForeignKey('Hakedis', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="İlgili Hakediş")
+    
+    tarih = models.DateField(default=timezone.now, verbose_name="İşlem Tarihi")
+    odeme_turu = models.CharField(max_length=10, choices=ODEME_TURLERI, default='nakit', verbose_name="Ödeme Yöntemi")
+    
+    # Tutar Bilgileri
+    tutar = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="Ödenen Tutar")
+    para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMLERI, default='TRY', verbose_name="Para Birimi")
+    
+    # Çek / Havale Detayları
+    banka_adi = models.CharField(max_length=100, blank=True, verbose_name="Banka Adı")
+    cek_no = models.CharField(max_length=50, blank=True, verbose_name="Çek No / Dekont No")
+    vade_tarihi = models.DateField(null=True, blank=True, verbose_name="Çek Vadesi")
+    
+    aciklama = models.CharField(max_length=200, blank=True, verbose_name="Açıklama")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Eğer çek ise ve vade girilmediyse, vadeyi işlem tarihi yap (Peşin Çek)
+        if self.odeme_turu == 'cek' and not self.vade_tarihi:
+            self.vade_tarihi = self.tarih
+        super(Odeme, self).save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.tedarikci} - {self.tutar} {self.para_birimi} ({self.get_odeme_turu_display()})"
+
+    class Meta:
+        verbose_name = "7. Ödeme & Çek Çıkışı"
+        verbose_name_plural = "7. Ödeme & Çek Çıkışı"
+        ordering = ['-tarih']
