@@ -62,7 +62,15 @@ urlpatterns = [
     path('tanim-yonetimi/', views.tanim_yonetimi, name='tanim_yonetimi'),
     path('kategori/ekle/', views.kategori_ekle, name='kategori_ekle'),
     path('depo/ekle/', views.depo_ekle, name='depo_ekle'),
-    
+    path('kategoriler/', views.kategori_listesi, name='kategori_listesi'),
+    path('kategori/duzenle/<int:pk>/', views.kategori_duzenle, name='kategori_duzenle'),
+    path('kategori/sil/<int:pk>/', views.kategori_sil, name='kategori_sil'),
+    path('depolar/', views.depo_listesi, name='depo_listesi'),
+    path('depo/duzenle/<int:pk>/', views.depo_duzenle, name='depo_duzenle'),
+    path('depo/sil/<int:pk>/', views.depo_sil, name='depo_sil'),
+    path('tedarikciler/', views.tedarikci_listesi, name='tedarikci_listesi'),
+    path('tedarikci/duzenle/<int:pk>/', views.tedarikci_duzenle, name='tedarikci_duzenle'),
+    path('tedarikci/sil/<int:pk>/', views.tedarikci_sil, name='tedarikci_sil'),
     
     # 8. Yazdırma & Çıktı
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),

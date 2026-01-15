@@ -1562,6 +1562,139 @@ def depo_ekle(request):
 
     return render(request, 'depo_ekle.html', {'form': form})
 
+@login_required
+def kategori_listesi(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    
+    kategoriler = Kategori.objects.all().order_by('isim')
+    return render(request, 'kategori_listesi.html', {'kategoriler': kategoriler})
+
+@login_required
+def kategori_duzenle(request, pk):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    kategori = get_object_or_404(Kategori, pk=pk)
+    from .forms import KategoriForm # NameError önlemek için
+
+    if request.method == 'POST':
+        form = KategoriForm(request.POST, instance=kategori)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ '{kategori.isim}' güncellendi.")
+            return redirect('kategori_listesi')
+    else:
+        form = KategoriForm(instance=kategori)
+
+    return render(request, 'kategori_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def kategori_sil(request, pk):
+    if not yetki_kontrol(request.user, ['YONETICI']): # Silme yetkisi sadece Yöneticide olsun
+        messages.error(request, "Silme yetkiniz yok.")
+        return redirect('kategori_listesi')
+
+    kategori = get_object_or_404(Kategori, pk=pk)
+    isim = kategori.isim
+    kategori.delete()
+    messages.warning(request, f"🗑️ '{isim}' silindi.")
+    return redirect('kategori_listesi')
+
+
+# ========================================================
+# 8. TANIM YÖNETİMİ: DEPO İŞLEMLERİ
+# ========================================================
+
+@login_required
+def depo_listesi(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    
+    depolar = Depo.objects.all().order_by('isim')
+    return render(request, 'depo_listesi.html', {'depolar': depolar})
+
+@login_required
+def depo_duzenle(request, pk):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    depo = get_object_or_404(Depo, pk=pk)
+    from .forms import DepoForm
+
+    if request.method == 'POST':
+        form = DepoForm(request.POST, instance=depo)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ '{depo.isim}' güncellendi.")
+            return redirect('depo_listesi')
+    else:
+        form = DepoForm(instance=depo)
+
+    return render(request, 'depo_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def depo_sil(request, pk):
+    if not yetki_kontrol(request.user, ['YONETICI']):
+        messages.error(request, "Silme yetkiniz yok.")
+        return redirect('depo_listesi')
+
+    depo = get_object_or_404(Depo, pk=pk)
+    
+    # Depoda hareket varsa silmeyi engellemek iyi bir güvenlik önlemidir
+    if depo.depohareket_set.exists():
+        messages.error(request, f"⛔ '{depo.isim}' deposunda işlem geçmişi olduğu için silinemez! Sadece ismini değiştirebilirsiniz.")
+        return redirect('depo_listesi')
+
+    isim = depo.isim
+    depo.delete()
+    messages.warning(request, f"🗑️ '{isim}' başarıyla silindi.")
+    return redirect('depo_listesi')
+
+@login_required
+def tedarikci_listesi(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    
+    tedarikciler = Tedarikci.objects.all().order_by('firma_unvani')
+    return render(request, 'tedarikci_listesi.html', {'tedarikciler': tedarikciler})
+
+@login_required
+def tedarikci_duzenle(request, pk):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    tedarikci = get_object_or_404(Tedarikci, pk=pk)
+    from .forms import TedarikciForm
+
+    if request.method == 'POST':
+        form = TedarikciForm(request.POST, instance=tedarikci)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ '{tedarikci.firma_unvani}' güncellendi.")
+            return redirect('tedarikci_listesi')
+    else:
+        form = TedarikciForm(instance=tedarikci)
+
+    return render(request, 'tedarikci_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def tedarikci_sil(request, pk):
+    if not yetki_kontrol(request.user, ['YONETICI']):
+        messages.error(request, "Silme yetkiniz yok.")
+        return redirect('tedarikci_listesi')
+
+    tedarikci = get_object_or_404(Tedarikci, pk=pk)
+    # Eğer tedarikçinin bekleyen veya onaylı teklifi varsa silmeyi engelle
+    if tedarikci.teklifler.exists():
+        messages.error(request, f"⛔ '{tedarikci.firma_unvani}' firmasına ait teklifler olduğu için silinemez.")
+        return redirect('tedarikci_listesi')
+
+    isim = tedarikci.firma_unvani
+    tedarikci.delete()
+    messages.warning(request, f"🗑️ '{isim}' başarıyla silindi.")
+    return redirect('tedarikci_listesi')
+
 def cikis_yap(request):
     logout(request)
     return redirect('/admin/login/')
