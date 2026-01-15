@@ -1,8 +1,20 @@
 from django import forms
 from .models import (
     DepoTransfer, Depo, Teklif, Malzeme, 
-    IsKalemi, Tedarikci, MalzemeTalep, KDV_ORANLARI, Fatura, Hakedis, Odeme
+    IsKalemi, Tedarikci, MalzemeTalep, KDV_ORANLARI, Fatura, Hakedis, Odeme, Kategori
 )
+
+# ========================================================
+# 0. YENİ: KATEGORİ (İMALAT TÜRÜ) FORMU
+# ========================================================
+
+class KategoriForm(forms.ModelForm):
+    class Meta:
+        model = Kategori
+        fields = ['isim']
+        widgets = {
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Kaba İnşaat, İnce İşler...', 'aria-label': 'Kategori Adı'}),
+        }
 
 # ========================================================
 # 1. DEPO TRANSFER FORMU
@@ -102,6 +114,15 @@ class TeklifForm(forms.ModelForm):
 # ========================================================
 # 3. TANIMLAMA FORMLARI
 # ========================================================
+
+class DepoForm(forms.ModelForm):
+    class Meta:
+        model = Depo
+        fields = ['isim', 'is_sanal']
+        widgets = {
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Merkez Depo, Şantiye A Deposu...'}),
+            'is_sanal': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
 
 class TedarikciForm(forms.ModelForm):
     class Meta:

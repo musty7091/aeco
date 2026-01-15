@@ -16,7 +16,7 @@ from .models import (
 )
 from .models import Fatura
 from .forms import FaturaGirisForm
-from .forms import DepoTransferForm, OdemeForm
+from .forms import DepoTransferForm, OdemeForm, DepoForm
 from .utils import tcmb_kur_getir
 from .forms import TeklifForm, TedarikciForm, MalzemeForm, TalepForm, IsKalemiForm, HakedisForm
 
@@ -44,7 +44,13 @@ def erisim_engellendi(request):
 
 @login_required
 def dashboard(request):
-    return render(request, 'dashboard.html')
+    # Sahadan gelen ve onay bekleyen (bekliyor) taleplerin sayısını alıyoruz
+    bekleyen_talep_sayisi = MalzemeTalep.objects.filter(durum='bekliyor').count()
+    
+    context = {
+        'bekleyen_talep_sayisi': bekleyen_talep_sayisi
+    }
+    return render(request, 'dashboard.html', context)
 
 # ========================================================
 # 2. MODÜL 1: TEKLİF YÖNETİMİ (İCMAL & GİRİŞ)
@@ -927,7 +933,7 @@ def mal_kabul(request, siparis_id):
             aciklama=f"Sipariş Kabulü: {aciklama}"
         )
 
-        siparis.teslim_edilen += gelen_miktar
+        siparis.tes_edilen += gelen_miktar
         siparis.save()
 
         messages.success(request, f"✅ {gelen_miktar} birim giriş yapıldı. Kalan: {siparis.kalan_miktar}")
@@ -1506,6 +1512,55 @@ def cari_ekstre(request, tedarikci_id):
         h['bakiye'] = bakiye
         
     return render(request, 'cari_ekstre.html', {'tedarikci': tedarikci, 'hareketler': hareketler})
+
+@login_required
+def tanim_yonetimi(request):
+    """
+    Tüm tanımlama işlemlerinin (Stok, Hizmet, Tedarikçi, Kategori) 
+    yönetildiği merkezi sayfa.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    
+    return render(request, 'tanim_yonetimi.html')
+
+@login_required
+def kategori_ekle(request):
+    """
+    İmalat Türlerini (Kategori) ön yüzden tanımlamak için.
+    """
+    if not yetki_kontrol(request.user, ['YONETICI', 'OFIS_VE_SATINALMA']):
+        return redirect('erisim_engellendi')
+
+    if request.method == 'POST':
+        # Form henüz forms.py'da yok, birazdan ekleyeceğiz
+        from .forms import KategoriForm
+        form = KategoriForm(request.POST)
+        if form.is_valid():
+            kategori = form.save()
+            messages.success(request, f"✅ '{kategori.isim}' imalat türü başarıyla tanımlandı.")
+            return redirect('tanim_yonetimi')
+    else:
+        from .forms import KategoriForm
+        form = KategoriForm()
+
+    return render(request, 'kategori_ekle.html', {'form': form})
+
+@login_required
+def depo_ekle(request):
+    if not yetki_kontrol(request.user, ['YONETICI', 'OFIS_VE_SATINALMA']):
+        return redirect('erisim_engellendi')
+
+    if request.method == 'POST':
+        form = DepoForm(request.POST)
+        if form.is_valid():
+            depo = form.save()
+            messages.success(request, f"✅ '{depo.isim}' deposu başarıyla sisteme eklendi.")
+            return redirect('tanim_yonetimi')
+    else:
+        form = DepoForm()
+
+    return render(request, 'depo_ekle.html', {'form': form})
 
 def cikis_yap(request):
     logout(request)

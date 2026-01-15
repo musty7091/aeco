@@ -39,6 +39,31 @@
         .btn-logout { position: absolute; top: 20px; right: 20px; }
         .admin-link { position: absolute; top: 20px; left: 20px; }
 
+        /* Bildirim Balonu Stili */
+        .badge-notify {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background-color: #ff4757;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 10px rgba(255, 71, 87, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+
         @media (max-width: 768px) { .module-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -53,7 +78,7 @@
             <p>Hoşgeldiniz, <strong>{{ request.user.username|upper }}</strong>. Lütfen işlem yapmak istediğiniz modülü seçiniz.</p>
         </div>
 
-        <div class="text-center mb-5">
+        <div class="text-center mb-5 position-relative">
             <a href="{% url 'talep_olustur' %}" class="btn btn-primary btn-lg rounded-pill px-5 shadow fw-bold" style="transform: scale(1.1);">
                 <i class="fas fa-plus-circle me-2"></i> SAHADAN TALEP OLUŞTUR
             </a>
@@ -62,6 +87,9 @@
         <div class="module-grid">
             
             <a href="{% url 'icmal_raporu' %}" class="module-card card-teklif">
+                {% if bekleyen_talep_sayisi > 0 %}
+                <div class="badge-notify">{{ bekleyen_talep_sayisi }}</div>
+                {% endif %}
                 <i class="fas fa-file-invoice-dollar" style="color: #f1c40f;"></i>
                 <span class="module-title">Teklif Yönetimi</span>
                 <span class="module-desc">İcmal Listesi, Fiyat Karşılaştırma ve Tedarikçi Seçimi</span>
@@ -73,10 +101,10 @@
                 <span class="module-desc">Onaylı Tekliflerin Takibi ve Gelen Malların Kaydı</span>
             </a>
 
-            <a href="{% url 'stok_listesi' %}" class="module-card card-depo">
+            <a href="{% url 'tanim_yonetimi' %}" class="module-card card-depo">
                 <i class="fas fa-truck-loading" style="color: #e67e22;"></i>
-                <span class="module-title">Malzemeler - Tanımlar</span>
-                <span class="module-desc">Stok Takibi, Mal ve Hizmet Tanımlamaları</span>
+                <span class="module-title">Tanım Yönetimi</span>
+                <span class="module-desc">Stok, Hizmet, Tedarikçi ve Kategori Tanımlamaları</span>
             </a>
 
             <a href="{% url 'odeme_dashboard' %}" class="module-card card-odeme">
@@ -94,7 +122,7 @@
             <a href="{% url 'finans_dashboard' %}" class="module-card card-finans">
                 <i class="fas fa-chart-pie" style="color: #2ecc71;"></i>
                 <span class="module-title">Finansal Özet Raporu</span>
-                <span class="module-desc">Bütçe Durumu, Masraf Girişi</span>
+                <span class="module-desc">Harcama Özeti, Masraf Girişi</span>
             </a>
 
         </div>
