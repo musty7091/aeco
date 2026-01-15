@@ -106,7 +106,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# settings.py dosyasının EN ALTINA ekleyin
+# --- JAZZMIN AYARLARI ---
 
 JAZZMIN_SETTINGS = {
     # Site başlığı
@@ -116,18 +116,14 @@ JAZZMIN_SETTINGS = {
     "welcome_sign": "Proje Yönetim Paneline Hoşgeldiniz",
     "copyright": "AECO Trading Ltd.",
 
-    # --- YENİ EKLENECEK KISIM (Siteye Dönüş Butonları) ---
+    # Siteye Dönüş Butonları
     "topmenu_links": [
         # Ana Sayfaya (Dashboard) Dönüş Butonu
         {"name": "Ana Sayfa",  "url": "/", "permissions": ["auth.view_user"]},
         
         # Direkt İcmal Listesine Gidiş Butonu
         {"name": "İcmal Listesi", "url": "/icmal/"},
-        
-        # Dış Bağlantı (Örn: Google veya Şirket Sitesi - Opsiyonel)
-        # {"name": "Şirket Web Sitesi", "url": "https://www.google.com", "new_window": True},
     ],
-    # -------------------------------------------------------
     
     # Menülerin açılır/kapanır olması için
     "navigation_expanded": True,
@@ -151,7 +147,7 @@ JAZZMIN_UI_TWEAKS = {
     }
 }
 
-# --- GİRİŞ / ÇIKIŞ AYARLARI ---
+# --- GİRİŞ / ÇIKIŞ YÖNLENDİRMELERİ ---
 # Giriş yapılmamışsa kullanıcıyı Admin giriş paneline yönlendir
 LOGIN_URL = '/admin/login/'
 
@@ -160,3 +156,16 @@ LOGIN_REDIRECT_URL = '/'
 
 # Çıkış yapınca tekrar giriş sayfasına dön
 LOGOUT_REDIRECT_URL = '/admin/login/'
+
+# ==========================================
+# OTURUM (SESSION) AYARLARI - ÇIKIŞ SORUNU İÇİN
+# ==========================================
+
+# Oturum süresi: 30 gün (Saniye cinsinden: 60 * 60 * 24 * 30)
+SESSION_COOKIE_AGE = 2592000
+
+# Tarayıcıyı kapatınca oturum kapanmasın (False yaptık)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+# Her işlemde süreyi sıfırla (Böylece aktif kullanıcı atılmaz)
+SESSION_SAVE_EVERY_REQUEST = True

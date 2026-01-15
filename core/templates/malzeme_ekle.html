@@ -1,85 +1,29 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yeni Malzeme Tanımla</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-</head>
-<body class="bg-light">
-
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-lg-8">
-            <div class="card shadow border-0">
-                <div class="card-header bg-warning text-dark py-3">
-                    <h5 class="mb-0 fw-bold"><i class="fas fa-box-open me-2"></i> Yeni Malzeme / Stok Kartı Oluştur</h5>
-                </div>
-                <div class="card-body p-4">
-                    
-                    {% if messages %}
-                        {% for message in messages %}
-                            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-                        {% endfor %}
-                    {% endif %}
-
-                    <form method="post">
-                        {% csrf_token %}
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-4">
-                                <label class="form-label fw-bold text-secondary">Kategori / Grup</label>
-                                {{ form.kategori }}
-                            </div>
-                            <div class="col-md-8">
-                                <label class="form-label fw-bold text-secondary">Malzeme Adı</label>
-                                {{ form.isim }}
-                            </div>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold text-secondary">Marka / Model (Opsiyonel)</label>
-                                {{ form.marka }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold text-secondary">Birim</label>
-                                {{ form.birim }}
-                            </div>
-                        </div>
-
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold text-secondary">Varsayılan KDV (%)</label>
-                                {{ form.kdv_orani }}
-                                <div class="form-text small">Satınalma siparişlerinde otomatik gelecektir.</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label fw-bold text-secondary">Kritik Stok Uyarısı</label>
-                                {{ form.kritik_stok }}
-                                <div class="form-text small">Stok bu sayının altına düşerse sistem uyarır.</div>
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label fw-bold text-secondary">Teknik Özellikler / Notlar</label>
-                            {{ form.aciklama }}
-                        </div>
-
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-dark btn-lg">
-                                <i class="fas fa-save me-2"></i> KAYDET VE LİSTEYE DÖN
-                            </button>
-                            <a href="{% url 'stok_listesi' %}" class="btn btn-outline-secondary">İptal</a>
-                        </div>
-                    </form>
-
-                </div>
+{% extends 'base.html' %}
+{% block title %}Malzeme Ekle | AECO{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="form-container">
+        <h2 class="form-title"><i class="fas fa-box-open me-2 text-primary"></i> Yeni Stok Kartı</h2>
+        <form method="post">
+            {% csrf_token %}
+            <div class="row mb-3">
+                <div class="col-md-6"><label class="form-label fw-bold">Malzeme Adı</label>{{ form.isim }}</div>
+                <div class="col-md-6"><label class="form-label fw-bold">Marka</label>{{ form.marka }}</div>
             </div>
-        </div>
+            <div class="row mb-3">
+                <div class="col-md-6"><label class="form-label fw-bold">Kategori</label>{{ form.kategori }}</div>
+                <div class="col-md-6"><label class="form-label fw-bold">Birim</label>{{ form.birim }}</div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-6"><label class="form-label fw-bold">KDV Oranı</label>{{ form.kdv_orani }}</div>
+                <div class="col-md-6"><label class="form-label fw-bold text-danger">Kritik Stok Limiti</label>{{ form.kritik_stok }}</div>
+            </div>
+            <div class="mb-4"><label class="form-label fw-bold">Açıklama</label>{{ form.aciklama }}</div>
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary px-4 rounded-pill w-100">Kaydet</button>
+                <a href="{% url 'stok_listesi' %}" class="btn btn-outline-secondary px-4 rounded-pill">Vazgeç</a>
+            </div>
+        </form>
     </div>
 </div>
-
-</body>
-</html>
+{% endblock %}

@@ -1,112 +1,62 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stok Listesi & Envanter</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-        .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .bg-gradient-primary { background: linear-gradient(45deg, #4e73df, #224abe); color: white; }
-        .bg-gradient-danger { background: linear-gradient(45deg, #e74a3b, #be2617); color: white; }
-        
-        /* Tablo Satır Stilleri */
-        tr.kritik-stok { background-color: #fff3f3 !important; border-left: 5px solid #e74a3b; }
-        tr.normal-stok { border-left: 5px solid #1cc88a; }
-        
-        /* İşlem Butonları */
-        .btn-action { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
-    </style>
-</head>
-<body>
-
+{% extends 'base.html' %}
+{% block title %}Stok Listesi | AECO{% endblock %}
+{% block extra_css %}
+<style>
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .bg-gradient-primary { background: linear-gradient(45deg, #4e73df, #224abe); color: white; }
+    .bg-gradient-danger { background: linear-gradient(45deg, #e74a3b, #be2617); color: white; }
+    tr.kritik-stok { background-color: #fff3f3 !important; border-left: 5px solid #e74a3b; }
+    tr.normal-stok { border-left: 5px solid #1cc88a; }
+</style>
+{% endblock %}
+{% block content %}
 <div class="container py-4" style="max-width: 1200px;">
-    
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div class="d-flex align-items-center">
-            <a href="{% url 'tanim_yonetimi' %}" class="btn btn-outline-secondary rounded-pill me-3 shadow-sm">
-                <i class="fas fa-arrow-left me-1"></i> Tanım Yönetimi
-            </a>
+            <a href="{% url 'tanim_yonetimi' %}" class="btn btn-outline-secondary rounded-pill me-3 shadow-sm"><i class="fas fa-arrow-left me-1"></i> Tanım Yönetimi</a>
             <h1 class="h3 mb-0 text-gray-800 fw-bold"><i class="fas fa-boxes me-2 text-primary"></i>STOK KARTLARI</h1>
         </div>
-        
         <div>
-            <a href="{% url 'hizmet_listesi' %}" class="btn btn-outline-info shadow-sm me-2 rounded-pill">
-                <i class="fas fa-tools me-1"></i> Hizmetler
-            </a>
-            <a href="{% url 'malzeme_ekle' %}" class="btn btn-primary shadow-sm fw-bold rounded-pill px-4">
-                <i class="fas fa-plus me-2"></i> Yeni Stok Kartı
-            </a>
+            <a href="{% url 'hizmet_listesi' %}" class="btn btn-outline-info shadow-sm me-2 rounded-pill"><i class="fas fa-tools me-1"></i> Hizmetler</a>
+            <a href="{% url 'malzeme_ekle' %}" class="btn btn-primary shadow-sm fw-bold rounded-pill px-4"><i class="fas fa-plus me-2"></i> Yeni Stok Kartı</a>
         </div>
     </div>
-
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        {% endfor %}
-    {% endif %}
-
     <div class="row mb-4">
         <div class="col-xl-3 col-md-6 mb-2">
             <div class="card bg-gradient-primary h-100 py-2">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Toplam Çeşit</div>
-                            <div class="h3 mb-0 fw-bold">{{ toplam_cesit }}</div>
-                        </div>
+                        <div class="col mr-2"><div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Toplam Çeşit</div><div class="h3 mb-0 fw-bold">{{ toplam_cesit }}</div></div>
                         <div class="col-auto"><i class="fas fa-layer-group fa-2x text-white-50"></i></div>
                     </div>
                 </div>
             </div>
         </div>
-
         <div class="col-xl-3 col-md-6 mb-2">
             <div class="card bg-gradient-danger h-100 py-2">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Kritik Seviye</div>
-                            <div class="h3 mb-0 fw-bold">{{ kritik_sayisi }}</div>
-                        </div>
+                        <div class="col mr-2"><div class="text-xs fw-bold text-uppercase mb-1" style="opacity: 0.8;">Kritik Seviye</div><div class="h3 mb-0 fw-bold">{{ kritik_sayisi }}</div></div>
                         <div class="col-auto"><i class="fas fa-exclamation-triangle fa-2x text-white-50"></i></div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-
     <div class="card shadow-sm">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
             <h6 class="m-0 fw-bold text-primary">Envanter Listesi</h6>
-            
             <form class="d-flex" method="GET">
                 <input class="form-control rounded-pill me-2" type="search" name="search" placeholder="Malzeme Ara..." value="{{ search_query }}">
                 <button class="btn btn-outline-primary rounded-pill" type="submit"><i class="fas fa-search"></i></button>
-                {% if search_query %}
-                    <a href="{% url 'stok_listesi' %}" class="btn btn-outline-secondary rounded-pill ms-2" title="Temizle">X</a>
-                {% endif %}
+                {% if search_query %}<a href="{% url 'stok_listesi' %}" class="btn btn-outline-secondary rounded-pill ms-2" title="Temizle">X</a>{% endif %}
             </form>
         </div>
-        
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light">
-                        <tr>
-                            <th style="padding-left: 20px;">Malzeme Adı</th>
-                            <th>Marka</th>
-                            <th>Kategori</th>
-                            <th class="text-center">Stok</th>
-                            <th>Birim</th>
-                            <th>Durum</th>
-                            <th class="text-end" style="padding-right: 20px;">İşlemler</th>
-                        </tr>
+                        <tr><th style="padding-left: 20px;">Malzeme Adı</th><th>Marka</th><th>Kategori</th><th class="text-center">Stok</th><th>Birim</th><th>Durum</th><th class="text-end" style="padding-right: 20px;"></th></tr>
                     </thead>
                     <tbody>
                         {% for malz in malzemeler %}
@@ -114,43 +64,25 @@
                             <td class="fw-bold text-dark px-3">{{ malz.isim }}</td>
                             <td>{{ malz.marka|default:"-" }}</td>
                             <td><span class="badge bg-light text-dark border">{{ malz.kategori.isim|default:"Genel" }}</span></td>
-                            <td class="text-center">
-                                <span class="fw-bold fs-5 {% if malz.kritik_durum %}text-danger{% else %}text-success{% endif %}">
-                                    {{ malz.stok|floatformat:0 }}
-                                </span>
-                            </td>
+                            <td class="text-center"><span class="fw-bold fs-5 {% if malz.kritik_durum %}text-danger{% else %}text-success{% endif %}">{{ malz.stok|floatformat:0 }}</span></td>
                             <td><small class="text-muted">{{ malz.get_birim_display }}</small></td>
-                            <td>
-                                {% if malz.kritik_durum %}
-                                    <span class="badge bg-danger">KRİTİK</span>
-                                {% else %}
-                                    <span class="badge bg-success">YETERLİ</span>
-                                {% endif %}
-                            </td>
+                            <td>{% if malz.kritik_durum %}<span class="badge bg-danger">KRİTİK</span>{% else %}<span class="badge bg-success">YETERLİ</span>{% endif %}</td>
                             <td class="text-end px-3">
-                                <a href="#" class="btn btn-outline-primary btn-action me-1" title="Düzenle">
+                                <a href="{% url 'malzeme_duzenle' pk=malz.id %}" class="btn btn-outline-primary btn-action me-1" title="Düzenle">
                                     <i class="fas fa-edit"></i>
                                 </a>
-                                <a href="#" class="btn btn-outline-danger btn-action" title="Sil" onclick="return confirm('Bu malzemeyi silmek istediğinize emin misiniz?');">
+                                <a href="{% url 'malzeme_sil' pk=malz.id %}" class="btn btn-outline-danger btn-action" title="Sil" onclick="return confirm('Bu stok kartını silmek istediğinize emin misiniz?');">
                                     <i class="fas fa-trash-alt"></i>
                                 </a>
                             </td>
                         </tr>
                         {% empty %}
-                        <tr>
-                            <td colspan="7" class="text-center py-5 text-muted">
-                                <i class="fas fa-box-open fa-3x mb-3"></i><br>Kayıtlı malzeme bulunamadı.
-                            </td>
-                        </tr>
+                        <tr><td colspan="7" class="text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><br>Kayıtlı malzeme bulunamadı.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
-
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+{% endblock %}

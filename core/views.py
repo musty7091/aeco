@@ -1695,6 +1695,92 @@ def tedarikci_sil(request, pk):
     messages.warning(request, f"🗑️ '{isim}' başarıyla silindi.")
     return redirect('tedarikci_listesi')
 
+@login_required
+def malzeme_duzenle(request, pk):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    malzeme = get_object_or_404(Malzeme, pk=pk)
+    from .forms import MalzemeForm
+
+    if request.method == 'POST':
+        form = MalzemeForm(request.POST, instance=malzeme)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ '{malzeme.isim}' stok kartı güncellendi.")
+            return redirect('stok_listesi')
+    else:
+        form = MalzemeForm(instance=malzeme)
+
+    return render(request, 'malzeme_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def malzeme_sil(request, pk):
+    if not yetki_kontrol(request.user, ['YONETICI']):
+        messages.error(request, "Stok kartı silme yetkiniz yok.")
+        return redirect('stok_listesi')
+
+    malzeme = get_object_or_404(Malzeme, pk=pk)
+    
+    # Güvenlik Kontrolü: Hareket görmüş malzeme silinmesin
+    hareket_var = DepoHareket.objects.filter(malzeme=malzeme).exists()
+    siparis_var = SatinAlma.objects.filter(teklif__malzeme=malzeme).exists()
+    talep_var = MalzemeTalep.objects.filter(malzeme=malzeme).exists()
+
+    if hareket_var or siparis_var or talep_var:
+        messages.error(request, f"⛔ '{malzeme.isim}' malzemesi işlem gördüğü için (sipariş, talep veya depo hareketi) silinemez! Sadece ismini değiştirebilir veya pasife alabilirsiniz.")
+        return redirect('stok_listesi')
+
+    isim = malzeme.isim
+    malzeme.delete()
+    messages.warning(request, f"🗑️ '{isim}' stok kartı silindi.")
+    return redirect('stok_listesi')
+
+
+# ========================================================
+# 11. TANIM YÖNETİMİ: HİZMET (İŞ KALEMİ) İŞLEMLERİ
+# ========================================================
+
+@login_required
+def hizmet_duzenle(request, pk):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    hizmet = get_object_or_404(IsKalemi, pk=pk)
+    from .forms import IsKalemiForm
+
+    if request.method == 'POST':
+        form = IsKalemiForm(request.POST, instance=hizmet)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"✅ '{hizmet.isim}' hizmet kartı güncellendi.")
+            return redirect('hizmet_listesi')
+    else:
+        form = IsKalemiForm(instance=hizmet)
+
+    return render(request, 'hizmet_ekle.html', {'form': form, 'duzenleme_modu': True})
+
+@login_required
+def hizmet_sil(request, pk):
+    if not yetki_kontrol(request.user, ['YONETICI']):
+        messages.error(request, "Silme yetkiniz yok.")
+        return redirect('hizmet_listesi')
+
+    hizmet = get_object_or_404(IsKalemi, pk=pk)
+    
+    # İlişki kontrolü
+    teklif_var = Teklif.objects.filter(is_kalemi=hizmet).exists()
+    talep_var = MalzemeTalep.objects.filter(is_kalemi=hizmet).exists()
+    
+    if teklif_var or talep_var:
+        messages.error(request, f"⛔ '{hizmet.isim}' hizmeti kullanımda olduğu için silinemez.")
+        return redirect('hizmet_listesi')
+
+    isim = hizmet.isim
+    hizmet.delete()
+    messages.warning(request, f"🗑️ '{isim}' hizmet kartı silindi.")
+    return redirect('hizmet_listesi')
+
 def cikis_yap(request):
     logout(request)
     return redirect('/admin/login/')

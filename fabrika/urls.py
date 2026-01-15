@@ -71,8 +71,10 @@ urlpatterns = [
     path('tedarikciler/', views.tedarikci_listesi, name='tedarikci_listesi'),
     path('tedarikci/duzenle/<int:pk>/', views.tedarikci_duzenle, name='tedarikci_duzenle'),
     path('tedarikci/sil/<int:pk>/', views.tedarikci_sil, name='tedarikci_sil'),
-    
-    # 8. Yazdırma & Çıktı
+    path('malzeme/duzenle/<int:pk>/', views.malzeme_duzenle, name='malzeme_duzenle'),
+    path('malzeme/sil/<int:pk>/', views.malzeme_sil, name='malzeme_sil'),
+    path('hizmet/duzenle/<int:pk>/', views.hizmet_duzenle, name='hizmet_duzenle'),
+    path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),
     path('yazdir/<str:model_name>/<int:pk>/', views.belge_yazdir, name='belge_yazdir'),
     
