@@ -55,7 +55,7 @@
 
         <div class="text-center mb-5">
             <a href="{% url 'talep_olustur' %}" class="btn btn-primary btn-lg rounded-pill px-5 shadow fw-bold" style="transform: scale(1.1);">
-                <i class="fas fa-plus-circle me-2"></i> YENİ TALEP OLUŞTUR
+                <i class="fas fa-plus-circle me-2"></i> SAHADAN TALEP OLUŞTUR
             </a>
         </div>
 
@@ -73,28 +73,28 @@
                 <span class="module-desc">Onaylı Tekliflerin Takibi ve Gelen Malların Kaydı</span>
             </a>
 
-            <a href="{% url 'finans_dashboard' %}" class="module-card card-finans">
-                <i class="fas fa-chart-pie" style="color: #2ecc71;"></i>
-                <span class="module-title">Satınalma & Finans</span>
-                <span class="module-desc">Bütçe Durumu, Harcama Grafikleri ve Maliyet Analizi</span>
-            </a>
-
             <a href="{% url 'stok_listesi' %}" class="module-card card-depo">
                 <i class="fas fa-truck-loading" style="color: #e67e22;"></i>
-                <span class="module-title">Depo & Malzemeler</span>
-                <span class="module-desc">Stok Takibi, Mal Kabul ve Malzeme/Hizmet Tanımları</span>
+                <span class="module-title">Malzemeler - Tanımlar</span>
+                <span class="module-desc">Stok Takibi, Mal ve Hizmet Tanımlamaları</span>
             </a>
 
             <a href="{% url 'odeme_dashboard' %}" class="module-card card-odeme">
                 <i class="fas fa-money-check-alt" style="color: #e74c3c;"></i>
-                <span class="module-title">Hakediş & Ödeme</span>
-                <span class="module-desc">Taşeron Hakedişleri, Çek Vade Takibi ve Borç Kapama</span>
+                <span class="module-title">Hakediş & Cari Ödemeleri</span>
+                <span class="module-desc">Taşeron Hakedişleri, Borç Kapama ve Çek Takibi</span>
             </a>
             
             <a href="{% url 'envanter_raporu' %}" class="module-card card-finans" style="border-bottom: 5px solid #17a2b8;">
                 <i class="fas fa-clipboard-list" style="color: #17a2b8;"></i>
                 <span class="module-title">Envanter Raporu</span>
-                <span class="module-desc">Hangi depoda ne kadar mal var?</span>
+                <span class="module-desc">Depo Stok Durumu ve Depolar Arası Transferler</span>
+            </a>
+
+            <a href="{% url 'finans_dashboard' %}" class="module-card card-finans">
+                <i class="fas fa-chart-pie" style="color: #2ecc71;"></i>
+                <span class="module-title">Finansal Özet Raporu</span>
+                <span class="module-desc">Bütçe Durumu, Masraf Girişi</span>
             </a>
 
         </div>
