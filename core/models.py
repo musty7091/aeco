@@ -583,50 +583,42 @@ class Hakedis(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # NOT: Artık global to_decimal fonksiyonu var ama yapıyı bozmamak adına 
-        # buradaki iç içe fonksiyonu koruyarak güncelledim.
-        from decimal import Decimal
-        # Circular import hatasını önlemek için fonksiyon içinde import ediyoruz
-        from .utils import tcmb_kur_getir 
-
-        # Yerel to_decimal'ı global olana yönlendiriyoruz veya aynısını koruyoruz.
-        # En temiz yöntem:
-        def to_dec(val):
-            return to_decimal(val)
-
         # 1. HESAPLAMA KURUNU BELİRLE VE KDV AYIKLA
         try:
             teklif = self.satinalma.teklif
-            islem_kuru = to_dec(teklif.kur_degeri)
+            islem_kuru = to_decimal(teklif.kur_degeri)
             
             # A) GÜNCEL KUR KONTROLÜ
+            # Eğer para birimi TL değilse, Hakediş anındaki GÜNCEL KURU çek.
             if teklif.para_birimi != 'TRY':
                 try:
                     guncel_kurlar = tcmb_kur_getir()
                     guncel_kur_str = guncel_kurlar.get(teklif.para_birimi)
                     if guncel_kur_str:
-                        islem_kuru = to_dec(guncel_kur_str)
+                        islem_kuru = to_decimal(guncel_kur_str)
                 except Exception as e:
                     print(f"Kur çekme hatası: {e}")
             else:
                 islem_kuru = Decimal('1.0')
 
             # B) BİRİM FİYAT (KDV ARINDIRMA)
-            birim_fiyat = to_dec(teklif.birim_fiyat)
+            birim_fiyat = to_decimal(teklif.birim_fiyat)
             
+            # Eğer teklif "KDV Dahil" girildiyse, hakediş matrahını bulmak için
+            # içindeki KDV'yi çıkarmalıyız. (Örn: 120 TL (KDV Dahil) -> 100 TL Matrah)
             if teklif.kdv_dahil_mi:
-                kdv_orani_teklif = to_dec(teklif.kdv_orani)
+                kdv_orani_teklif = to_decimal(teklif.kdv_orani)
                 birim_fiyat = birim_fiyat / (Decimal('1.0') + (kdv_orani_teklif / Decimal('100.0')))
 
             # 2. SÖZLEŞME MATRAHINI HESAPLA (TL Karşılığı)
-            miktar = to_dec(self.satinalma.toplam_miktar)
+            miktar = to_decimal(self.satinalma.toplam_miktar)
             
             # KDV Hariç Toplam Sözleşme Tutarı (TL)
             sozlesme_toplam_tl = birim_fiyat * miktar * islem_kuru
 
             # 3. HAKEDİŞ TUTARINI HESAPLA (Yüzdeye Göre)
             if self.tamamlanma_orani:
-                oran = to_dec(self.tamamlanma_orani)
+                oran = to_decimal(self.tamamlanma_orani)
                 self.brut_tutar = sozlesme_toplam_tl * (oran / Decimal('100.0'))
             else:
                 self.brut_tutar = Decimal('0.00')
@@ -637,11 +629,11 @@ class Hakedis(models.Model):
 
         # 4. KDV, STOPAJ ve NET TUTAR HESAPLAMALARI
         try:
-            kdv_orani = to_dec(self.kdv_orani or 0)
-            stopaj_orani = to_dec(self.stopaj_orani or 0)
-            teminat_orani = to_dec(self.teminat_orani or 0)
-            avans_kesintisi = to_dec(self.avans_kesintisi or 0)
-            diger_kesintiler = to_dec(self.diger_kesintiler or 0)
+            kdv_orani = to_decimal(self.kdv_orani or 0)
+            stopaj_orani = to_decimal(self.stopaj_orani or 0)
+            teminat_orani = to_decimal(self.teminat_orani or 0)
+            avans_kesintisi = to_decimal(self.avans_kesintisi or 0)
+            diger_kesintiler = to_decimal(self.diger_kesintiler or 0)
 
             # KDV
             self.kdv_tutari = self.brut_tutar * (kdv_orani / Decimal('100.0'))
