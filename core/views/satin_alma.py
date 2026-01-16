@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -5,6 +6,12 @@ from django.utils import timezone
 from core.models import SatinAlma, Depo, DepoHareket, Fatura
 from core.forms import FaturaGirisForm
 from .guvenlik import yetki_kontrol
+
+# Helper
+def to_decimal(value):
+    if value is None: return Decimal('0.00')
+    if isinstance(value, float): return Decimal(str(value))
+    return Decimal(value).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
 
 @login_required
 def siparis_listesi(request):
@@ -32,12 +39,15 @@ def mal_kabul(request, siparis_id):
     depolar = Depo.objects.all()
 
     if request.method == 'POST':
-        try: gelen_miktar = float(request.POST.get('gelen_miktar'))
-        except ValueError:
+        try: 
+            # Miktar Decimal olmalı
+            gelen_miktar = Decimal(request.POST.get('gelen_miktar').replace(',', '.'))
+        except:
             messages.error(request, "Lütfen geçerli bir sayı giriniz.")
             return redirect('mal_kabul', siparis_id=siparis.id)
 
-        if gelen_miktar > (siparis.kalan_miktar + 0.0001): 
+        # Decimal Karşılaştırma
+        if gelen_miktar > (to_decimal(siparis.kalan_miktar) + Decimal('0.0001')): 
             messages.error(request, f"⛔ HATA: Maksimum alabileceğiniz miktar: {siparis.kalan_miktar}")
             return redirect('mal_kabul', siparis_id=siparis.id)
 
@@ -56,8 +66,11 @@ def mal_kabul(request, siparis_id):
             tarih=request.POST.get('tarih') or timezone.now(),
             aciklama=f"Sipariş Kabulü: {request.POST.get('aciklama')}"
         )
-        siparis.teslim_edilen += gelen_miktar
+        
+        # Miktar güncelleme (Decimal olarak)
+        siparis.teslim_edilen = to_decimal(siparis.teslim_edilen) + gelen_miktar
         siparis.save()
+        
         messages.success(request, f"✅ {gelen_miktar} birim giriş yapıldı.")
         
         return redirect('siparis_listesi') if siparis.teslimat_durumu == 'tamamlandi' else redirect('mal_kabul', siparis_id=siparis.id)
@@ -78,15 +91,26 @@ def fatura_girisi(request, siparis_id):
         return redirect('erisim_engellendi')
 
     siparis = get_object_or_404(SatinAlma, id=siparis_id)
-    varsayilan_miktar = siparis.kalan_fatura_miktar
-    varsayilan_tutar = 0
+    
+    # Decimal Hesaplama
+    varsayilan_miktar = to_decimal(siparis.kalan_fatura_miktar)
+    varsayilan_tutar = Decimal('0.00')
     varsayilan_depo = None
     
     if varsayilan_miktar > 0:
         try:
             t = siparis.teklif
-            varsayilan_tutar = round(varsayilan_miktar * float(t.birim_fiyat) * float(t.kur_degeri) * (1 + (float(t.kdv_orani)/100)), 2)
-        except: pass
+            bf = to_decimal(t.birim_fiyat)
+            kur = to_decimal(t.kur_degeri)
+            kdv = to_decimal(t.kdv_orani)
+            
+            # Formül: Miktar * BF * Kur * (1 + KDV/100)
+            ara_toplam = varsayilan_miktar * bf * kur
+            kdvli_tutar = ara_toplam * (1 + (kdv / 100))
+            
+            varsayilan_tutar = kdvli_tutar.quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
+        except Exception as e: 
+            print(f"Hesap Hatası: {e}")
 
     son_hareket = siparis.depo_hareketleri.filter(islem_turu='giris').last()
     if son_hareket and son_hareket.depo: varsayilan_depo = son_hareket.depo.id
@@ -112,7 +136,7 @@ def fatura_girisi(request, siparis_id):
                     tarih=fatura.tarih,
                     aciklama=f"Fatura Girişi: {fatura.fatura_no}"
                 )
-                siparis.teslim_edilen += fatura.miktar
+                siparis.teslim_edilen = to_decimal(siparis.teslim_edilen) + to_decimal(fatura.miktar)
                 siparis.save()
                 messages.success(request, f"✅ Fatura işlendi. {fatura.miktar} adet stok girişi yapıldı.")
             else:
@@ -133,9 +157,13 @@ def fatura_sil(request, fatura_id):
     stok_hareketi = DepoHareket.objects.filter(siparis=siparis, irsaliye_no=f"FATURA-{fatura.fatura_no}", islem_turu='giris').first()
     if stok_hareketi:
         stok_hareketi.delete()
-        siparis.teslim_edilen = max(0, siparis.teslim_edilen - fatura.miktar)
+        # Decimal işlem
+        yeni_teslim = to_decimal(siparis.teslim_edilen) - to_decimal(fatura.miktar)
+        siparis.teslim_edilen = max(Decimal('0'), yeni_teslim)
 
-    siparis.faturalanan_miktar = max(0, siparis.faturalanan_miktar - fatura.miktar)
+    yeni_faturalanan = to_decimal(siparis.faturalanan_miktar) - to_decimal(fatura.miktar)
+    siparis.faturalanan_miktar = max(Decimal('0'), yeni_faturalanan)
+    
     siparis.save()
     fatura.delete()
     messages.warning(request, f"🗑️ Fatura ve bağlı stok girişi silindi.")
