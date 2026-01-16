@@ -72,17 +72,19 @@ class IsKalemi(models.Model):
 # ==========================================
 
 class Depo(models.Model):
+    TUR_CHOICES = [
+        ('MERKEZ', 'Merkez Depo'),
+        ('BAGLANTI', 'Bağlantı Deposu (Sanal/Tedarikçi)'),
+        ('KULLANIM', 'Kullanım Deposu (Sahada)'),
+    ]
+
     isim = models.CharField(max_length=100, verbose_name="Depo Adı")
-    tur = models.CharField(
-        max_length=20, 
-        choices=DepoTuru.choices, 
-        default=DepoTuru.MERKEZ,
-        verbose_name="Depo Türü"
-    )
-    adres = models.CharField(max_length=200, blank=True)
+    adres = models.CharField(max_length=200, blank=True, verbose_name="Lokasyon / Adres")
+    is_sanal = models.BooleanField(default=False, verbose_name="Sanal / Tedarikçi Deposu mu?")
     
     def __str__(self):
-        return f"{self.isim} ({self.get_tur_display()})"
+        tur = "(Sanal)" if self.is_sanal else "(Fiziksel)"
+        return f"{self.isim} {tur}"
 
     class Meta:
         verbose_name = "Depo Tanımı"
@@ -97,14 +99,10 @@ class Malzeme(models.Model):
     
     @property
     def stok(self):
-        hareketler = self.hareketler.filter(
-            depo__tur__in=[DepoTuru.MERKEZ, DepoTuru.BAGLANTI]
-        )
-        giren = hareketler.filter(islem_turu__in=[IslemTuru.GIRIS, IslemTuru.TRANSFER, IslemTuru.IADE])\
-                          .aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        cikan = hareketler.filter(islem_turu__in=[IslemTuru.CIKIS, IslemTuru.TRANSFER])\
-                          .aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        return giren - cikan
+        giren = self.hareketler.filter(islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
+        cikan = self.hareketler.filter(islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
+        iade_iptal = self.hareketler.filter(islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
+        return giren - cikan - iade_iptal
 
     def depo_stogu(self, depo_id):
         h = self.hareketler.filter(depo_id=depo_id)
