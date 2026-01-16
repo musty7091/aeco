@@ -3,22 +3,9 @@ from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
-# Kur fonksiyonunu içe aktarıyoruz
-from .utils import tcmb_kur_getir 
+from .utils import tcmb_kur_getir
+from core.utils import to_decimal
 
-# ==========================================
-# YARDIMCI FONKSİYON (Yeni Eklendi)
-# ==========================================
-def to_decimal(val):
-    """
-    Gelen herhangi bir değeri (float, int, str, None) güvenli bir şekilde
-    Decimal formatına çevirir. Kuruş hatalarını önler.
-    """
-    if val is None:
-        return Decimal('0.00')
-    if isinstance(val, float):
-        return Decimal(str(val))
-    return Decimal(val).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
 
 # ==========================================
 # SABİTLER (GLOBAL)
@@ -586,12 +573,15 @@ class Hakedis(models.Model):
         # 1. HESAPLAMA KURUNU BELİRLE VE KDV AYIKLA
         try:
             teklif = self.satinalma.teklif
+            # Global to_decimal fonksiyonunu kullanıyoruz
             islem_kuru = to_decimal(teklif.kur_degeri)
             
             # A) GÜNCEL KUR KONTROLÜ
             # Eğer para birimi TL değilse, Hakediş anındaki GÜNCEL KURU çek.
             if teklif.para_birimi != 'TRY':
                 try:
+                    # utils dosyasından import (Circular import önlemek için burada çağrılabilir)
+                    from .utils import tcmb_kur_getir 
                     guncel_kurlar = tcmb_kur_getir()
                     guncel_kur_str = guncel_kurlar.get(teklif.para_birimi)
                     if guncel_kur_str:
@@ -604,8 +594,7 @@ class Hakedis(models.Model):
             # B) BİRİM FİYAT (KDV ARINDIRMA)
             birim_fiyat = to_decimal(teklif.birim_fiyat)
             
-            # Eğer teklif "KDV Dahil" girildiyse, hakediş matrahını bulmak için
-            # içindeki KDV'yi çıkarmalıyız. (Örn: 120 TL (KDV Dahil) -> 100 TL Matrah)
+            # Eğer teklif "KDV Dahil" girildiyse, hakediş matrahını bulmak için KDV'yi çıkar
             if teklif.kdv_dahil_mi:
                 kdv_orani_teklif = to_decimal(teklif.kdv_orani)
                 birim_fiyat = birim_fiyat / (Decimal('1.0') + (kdv_orani_teklif / Decimal('100.0')))
@@ -629,6 +618,7 @@ class Hakedis(models.Model):
 
         # 4. KDV, STOPAJ ve NET TUTAR HESAPLAMALARI
         try:
+            # Alanlar boş gelirse 0 kabul et
             kdv_orani = to_decimal(self.kdv_orani or 0)
             stopaj_orani = to_decimal(self.stopaj_orani or 0)
             teminat_orani = to_decimal(self.teminat_orani or 0)
@@ -642,13 +632,14 @@ class Hakedis(models.Model):
             self.stopaj_tutari = self.brut_tutar * (stopaj_orani / Decimal('100.0'))
             self.teminat_tutari = self.brut_tutar * (teminat_orani / Decimal('100.0'))
             
-            # Net Tutar: (Brüt + KDV) - (Stopaj + Teminat + Avans + Diğer)
+            # Net Tutar Hesabı
             toplam_alacak = self.brut_tutar + self.kdv_tutari
             toplam_kesinti = self.stopaj_tutari + self.teminat_tutari + avans_kesintisi + diger_kesintiler
             
             self.odenecek_net_tutar = toplam_alacak - toplam_kesinti
             
-        except:
+        except Exception as e:
+            print(f"Net tutar hesaplama hatası: {e}")
             pass
 
         super(Hakedis, self).save(*args, **kwargs)

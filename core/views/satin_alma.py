@@ -6,12 +6,8 @@ from django.utils import timezone
 from core.models import SatinAlma, Depo, DepoHareket, Fatura
 from core.forms import FaturaGirisForm
 from .guvenlik import yetki_kontrol
+from core.utils import to_decimal
 
-# Helper
-def to_decimal(value):
-    if value is None: return Decimal('0.00')
-    if isinstance(value, float): return Decimal(str(value))
-    return Decimal(value).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
 
 @login_required
 def siparis_listesi(request):

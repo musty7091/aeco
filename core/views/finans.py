@@ -9,14 +9,8 @@ from core.models import Tedarikci, Fatura, Odeme, Kategori, GiderKategorisi, Hak
 from core.forms import OdemeForm, HakedisForm
 from core.utils import tcmb_kur_getir
 from .guvenlik import yetki_kontrol
+from core.utils import to_decimal
 
-# Yardımcı Fonksiyon: Güvenli Decimal Çevrimi
-def to_decimal(value):
-    if value is None:
-        return Decimal('0.00')
-    if isinstance(value, float):
-        return Decimal(str(value))
-    return Decimal(value).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
 
 @login_required
 def finans_dashboard(request):

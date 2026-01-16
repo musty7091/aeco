@@ -1,6 +1,6 @@
 import requests
 import xml.etree.ElementTree as ET
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 def tcmb_kur_getir():
     """
@@ -38,3 +38,13 @@ def tcmb_kur_getir():
         print(f"Kur çekme hatası: {e}")
         
     return kurlar
+
+def to_decimal(val):
+    """
+    Gelen değeri güvenli Decimal formatına çevirir.
+    """
+    if val is None:
+        return Decimal('0.00')
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(val).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
