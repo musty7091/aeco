@@ -3,9 +3,7 @@ from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
-from .utils import tcmb_kur_getir
 from core.utils import to_decimal
-
 
 # ==========================================
 # SABİTLER (GLOBAL)
@@ -19,7 +17,6 @@ KDV_ORANLARI = [
     (20, '%20')
 ]
 
-# GBP buraya eklendi
 PARA_BIRIMI_CHOICES = [
     ('TRY', 'Türk Lirası (₺)'),
     ('USD', 'Amerikan Doları ($)'),
@@ -49,7 +46,6 @@ class IsKalemi(models.Model):
     
     kategori = models.ForeignKey(Kategori, on_delete=models.CASCADE, related_name='kalemler', verbose_name="Kategori")
     isim = models.CharField(max_length=200, verbose_name="İş Kalemi Adı")
-    # FloatField -> DecimalField
     hedef_miktar = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name="Yaklaşık Metraj")
     birim = models.CharField(max_length=20, choices=BIRIMLER, default='adet')
     
@@ -110,13 +106,11 @@ class Malzeme(models.Model):
     marka = models.CharField(max_length=100, blank=True, verbose_name="Marka / Model")
     birim = models.CharField(max_length=20, choices=IsKalemi.BIRIMLER, default='adet')
     kdv_orani = models.IntegerField(choices=KDV_ORANLARI, default=20, verbose_name="Varsayılan KDV (%)")
-    # FloatField -> DecimalField
     kritik_stok = models.DecimalField(max_digits=10, decimal_places=2, default=10, verbose_name="Kritik Stok Uyarı Limiti")
     aciklama = models.TextField(blank=True, verbose_name="Teknik Özellikler / Notlar")
     
     @property
     def stok(self):
-        # Aggregate sonucu Decimal döner, None gelirse Decimal('0') yapıyoruz
         giren = self.hareketler.filter(islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
         cikan = self.hareketler.filter(islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
         iade_iptal = self.hareketler.filter(islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
@@ -159,7 +153,6 @@ class MalzemeTalep(models.Model):
     malzeme = models.ForeignKey(Malzeme, on_delete=models.SET_NULL, related_name='talepler', null=True, blank=True, verbose_name="Malzeme (Satınalma)")
     is_kalemi = models.ForeignKey(IsKalemi, on_delete=models.SET_NULL, related_name='talepler', null=True, blank=True, verbose_name="İş Kalemi (Hizmet/Taşeron)")
     
-    # FloatField -> DecimalField
     miktar = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="İstenen Miktar")
     oncelik = models.CharField(max_length=10, choices=ONCELIKLER, default='normal', verbose_name="Aciliyet Durumu")
     
@@ -198,7 +191,6 @@ class Teklif(models.Model):
         ('onaylandi', '✅ Onaylandı (Sipariş)'),
         ('reddedildi', '❌ Reddedildi'),
     ]
-    # PARA_BIRIMLERI YERİNE GLOBAL SABİT KULLANILIYOR
     
     talep = models.ForeignKey(MalzemeTalep, on_delete=models.CASCADE, related_name='teklifler', null=True, blank=True, verbose_name="İlgili Talep")
     
@@ -207,7 +199,6 @@ class Teklif(models.Model):
     
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.CASCADE, related_name='teklifler')
     
-    # FloatField -> DecimalField
     miktar = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name="Teklif Miktarı")
     birim_fiyat = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="Birim Fiyat (KDV Hariç)")
     
@@ -223,36 +214,28 @@ class Teklif(models.Model):
     olusturulma_tarihi = models.DateTimeField(auto_now_add=True)
     
     def clean(self):
-        """Veri tutarlılığı kontrolü"""
         if not self.is_kalemi and not self.malzeme:
             raise ValidationError("Lütfen ya bir 'İş Kalemi' ya da bir 'Malzeme' seçiniz.")
         if self.is_kalemi and self.malzeme:
             raise ValidationError("Aynı anda hem İş Kalemi hem Malzeme seçemezsiniz.")
 
     def save(self, *args, **kwargs):
-        """Hakediş hesaplamalarından arındırılmış temiz save metodu"""
         super(Teklif, self).save(*args, **kwargs)
 
     @property
     def toplam_fiyat_tl(self):
-        """KDV dahil toplam TL tutarı (Decimal Hesaplama)"""
         kdv_carpani = Decimal(0) if self.kdv_orani == -1 else Decimal(self.kdv_orani)
-        
-        # Float dönüşümlerini to_decimal ile değiştiriyoruz
         tutar_ham = to_decimal(self.birim_fiyat) * to_decimal(self.miktar)
         
-        # Eğer KDV Dahil ise zaten birim fiyat KDV'lidir, sadece kurla çarp
         if self.kdv_dahil_mi:
              tutar_tl = tutar_ham * to_decimal(self.kur_degeri)
         else:
-            # KDV Hariç ise üzerine ekle
             tutar_tl = (tutar_ham * to_decimal(self.kur_degeri)) * (Decimal('1') + (kdv_carpani / Decimal('100')))
             
         return tutar_tl.quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
     
     @property
     def toplam_fiyat_orijinal(self):
-        """KDV dahil orijinal para birimi tutarı (Decimal Hesaplama)"""
         kdv_carpani = Decimal(0) if self.kdv_orani == -1 else Decimal(self.kdv_orani)
         ham_tutar = to_decimal(self.birim_fiyat) * to_decimal(self.miktar)
         
@@ -265,7 +248,6 @@ class Teklif(models.Model):
 
     @property
     def birim_fiyat_kdvli(self):
-        """KDV dahil birim fiyat (Decimal Hesaplama)"""
         kdv_carpani = Decimal(0) if self.kdv_orani == -1 else Decimal(self.kdv_orani)
         
         if self.kdv_dahil_mi:
@@ -298,10 +280,8 @@ class SatinAlma(models.Model):
     siparis_tarihi = models.DateField(default=timezone.now, verbose_name="Sipariş Tarihi")
     teslimat_durumu = models.CharField(max_length=20, choices=TESLIMAT_DURUMLARI, default='bekliyor')
     
-    # Miktar Takibi (Decimal'e Çevrildi)
     toplam_miktar = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Sipariş Edilen Toplam")
     
-    # İki ayrı sayaç (Decimal'e Çevrildi)
     teslim_edilen = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Depoya Giren (Fiziksel)")
     faturalanan_miktar = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Faturası Gelen (Finansal)")
     fiili_odenen_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Şu Ana Kadar Ödenen")
@@ -310,7 +290,6 @@ class SatinAlma(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Durum güncellemesi
         if self.teslim_edilen == 0:
             self.teslimat_durumu = 'bekliyor'
         elif 0 < self.teslim_edilen < self.toplam_miktar:
@@ -322,12 +301,10 @@ class SatinAlma(models.Model):
 
     @property
     def kalan_miktar(self):
-        """Depoya daha girmesi gereken miktar"""
         return max(self.toplam_miktar - self.teslim_edilen, Decimal('0'))
 
     @property
     def kalan_fatura_miktar(self):
-        """Faturası henüz gelmemiş miktar"""
         return max(self.toplam_miktar - self.faturalanan_miktar, Decimal('0'))
 
     @property
@@ -336,12 +313,8 @@ class SatinAlma(models.Model):
         yuzde = (self.teslim_edilen / self.toplam_miktar) * Decimal('100')
         return min(yuzde, Decimal('100'))
 
-    # --- YENİ EKLENEN KRİTİK ÖZELLİK: FIFO İÇİN ---
     @property
     def sanal_depoda_bekleyen(self):
-        """
-        Bu siparişin Sanal Depolara girip de henüz oradan çıkmamış (Sevk edilmemiş) miktarı.
-        """
         girisler = self.depo_hareketleri.filter(depo__is_sanal=True, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
         cikislar = self.depo_hareketleri.filter(depo__is_sanal=True, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
         return max(girisler - cikislar, Decimal('0'))
@@ -369,7 +342,6 @@ class GiderKategorisi(models.Model):
         verbose_name_plural = "Gider Tanımları"
 
 class Harcama(models.Model):
-    # Global PARA_BIRIMI_CHOICES kullanılıyor
     kategori = models.ForeignKey(
         GiderKategorisi, 
         on_delete=models.CASCADE, 
@@ -378,11 +350,9 @@ class Harcama(models.Model):
     )
     aciklama = models.CharField(max_length=200, verbose_name="Harcama Açıklaması")
     
-    # FloatField -> DecimalField
     tutar = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="Tutar")
     para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMI_CHOICES, default='TRY', verbose_name="Para Birimi")
     
-    # İleride kur farkı takibi yapabilmek için kur_degeri eklemek iyi bir pratik olur
     kur_degeri = models.DecimalField(max_digits=10, decimal_places=4, default=1.0000, verbose_name="İşlem Kuru")
     
     tarih = models.DateField(default=timezone.now, verbose_name="Harcama Tarihi")
@@ -390,7 +360,6 @@ class Harcama(models.Model):
 
     @property
     def tl_tutar(self):
-        """Harcamanın TL karşılığını kur ile çarparak hesaplar."""
         return (to_decimal(self.tutar) * to_decimal(self.kur_degeri)).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
 
     def __str__(self):
@@ -422,13 +391,11 @@ class DepoHareket(models.Model):
 
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, related_name='hareketler')
     depo = models.ForeignKey(Depo, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="İlgili Depo")
-    # 'SatinAlma' string referansı, model sırasından kaynaklı hatayı önler
     siparis = models.ForeignKey('SatinAlma', on_delete=models.SET_NULL, null=True, blank=True, related_name='depo_hareketleri', verbose_name="Bağlı Sipariş")
     
     tarih = models.DateField(default=timezone.now)
     islem_turu = models.CharField(max_length=10, choices=ISLEM_TURLERI)
     
-    # FloatField -> DecimalField
     miktar = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Miktar")
     
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Tedarikçi (Giriş ise)")
@@ -453,7 +420,6 @@ class DepoTransfer(models.Model):
     
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, verbose_name="Taşınacak Malzeme")
     
-    # FloatField -> DecimalField
     miktar = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Transfer Miktarı")
     
     tarih = models.DateField(default=timezone.now)
@@ -461,65 +427,8 @@ class DepoTransfer(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        
-        # --- EĞER YENİ BİR TRANSFERSE ---
-        if is_new:
-            # 1. Eğer view tarafından bir sipariş bağlanmamışsa, biz bulmaya çalışalım
-            if not getattr(self, 'bagli_siparis', None) and self.kaynak_depo.is_sanal:
-                # Sanal depodan çıkış yapılıyor ama sipariş seçilmemiş.
-                # Bu malzemeyi bekleyen en eski (FIFO) siparişi bulup ona bağlayalım.
-                
-                # Model içinde model import ediyoruz (Circular Import hatasını önlemek için)
-                from .models import SatinAlma 
-                
-                # Tamamlanmamış ve bu malzemeyi içeren siparişleri eskiden yeniye sırala
-                aday_siparisler = SatinAlma.objects.filter(
-                    teklif__malzeme=self.malzeme
-                ).exclude(teslimat_durumu='tamamlandi').order_by('created_at')
-                
-                for aday in aday_siparisler:
-                    # Siparişin sanal depoda bekleyen malı var mı?
-                    if aday.sanal_depoda_bekleyen > 0:
-                        self.bagli_siparis = aday
-                        # Açıklamaya not düşelim
-                        if not self.aciklama:
-                            self.aciklama = f"Otomatik Eşleşme: Sipariş #{aday.id}"
-                        else:
-                            self.aciklama += f" (Oto. Sipariş #{aday.id})"
-                        break
-
-        super().save(*args, **kwargs)
-        
-        if is_new:
-            siparis_obj = getattr(self, 'bagli_siparis', None)
-
-            # 1. Kaynak Depo ÇIKIŞI
-            DepoHareket.objects.create(
-                malzeme=self.malzeme,
-                depo=self.kaynak_depo,
-                tarih=self.tarih,
-                islem_turu='cikis',
-                miktar=self.miktar,
-                siparis=siparis_obj, # <--- ARTIK SİPARİŞİ TANIYOR
-                aciklama=f"TRANSFER ÇIKIŞI -> {self.hedef_depo.isim} | {self.aciklama}"
-            )
-            
-            # 2. Hedef Depo GİRİŞİ
-            DepoHareket.objects.create(
-                malzeme=self.malzeme,
-                depo=self.hedef_depo,
-                tarih=self.tarih,
-                islem_turu='giris',
-                miktar=self.miktar,
-                siparis=siparis_obj, # <--- ARTIK SİPARİŞİ TANIYOR
-                aciklama=f"TRANSFER GİRİŞİ <- {self.kaynak_depo.isim} | {self.aciklama}"
-            )
-            
-            # Eğer bir siparişe bağlandıysa, siparişin durumunu tetiklemek için tekrar kaydet
-            if siparis_obj:
-                siparis_obj.save()
+    # DİKKAT: save() metodu temizlendi. 
+    # DepoHareket oluşturma mantığı core/signals.py dosyasına taşındı.
 
     class Meta:
         verbose_name = "8. Sevkiyat (Mal Kabul)"
@@ -531,7 +440,6 @@ class DepoTransfer(models.Model):
 # ==========================================
 
 class Hakedis(models.Model):
-    # 'SatinAlma' tırnak içinde yazılmalı. Böylece sınıfın nerede tanımlandığı önemsizleşir.
     satinalma = models.ForeignKey('SatinAlma', on_delete=models.CASCADE, related_name='hakedisler', verbose_name="İlgili Sözleşme")
     
     hakedis_no = models.PositiveIntegerField(default=1, verbose_name="Hakediş No")
@@ -540,19 +448,15 @@ class Hakedis(models.Model):
     donem_baslangic = models.DateField(verbose_name="Dönem Başı", null=True, blank=True)
     donem_bitis = models.DateField(verbose_name="Dönem Sonu", null=True, blank=True)
     
-    # --- HESAPLAMA ---
     aciklama = models.TextField(blank=True, verbose_name="Yapılan İşin Açıklaması")
     
-    # İster Yüzde ile, İster Tutar ile giriş yapabilsin
     tamamlanma_orani = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="Bu Dönem İlerleme (%)")
     
-    # --- FİNANSAL VERİLER ---
     brut_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Hakediş Tutarı (KDV Hariç)")
     
     kdv_orani = models.PositiveIntegerField(default=20, verbose_name="KDV (%)")
     kdv_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="KDV Tutarı")
     
-    # KESİNTİLER
     stopaj_orani = models.PositiveIntegerField(default=0, verbose_name="Stopaj (%)", help_text="Genelde %3")
     stopaj_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Kesilen Stopaj")
     
@@ -562,7 +466,6 @@ class Hakedis(models.Model):
     avans_kesintisi = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Avans Kesintisi")
     diger_kesintiler = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Malzeme/Ceza vb.")
     
-    # SONUÇ
     odenecek_net_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Ödenecek Net Tutar")
     fiili_odenen_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Şu Ana Kadar Ödenen")
 
@@ -570,42 +473,26 @@ class Hakedis(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # 1. HESAPLAMA KURUNU BELİRLE VE KDV AYIKLA
+        # NOT: Dış servis çağrısı (tcmb_kur_getir) kaldırıldı.
+        # Artık kur bilgisi View katmanında çekilip modele işlenmeli.
+        # Burada sadece mevcut verilerle matematiksel işlem yapılıyor.
+        
         try:
             teklif = self.satinalma.teklif
-            # Global to_decimal fonksiyonunu kullanıyoruz
-            islem_kuru = to_decimal(teklif.kur_degeri)
-            
-            # A) GÜNCEL KUR KONTROLÜ
-            # Eğer para birimi TL değilse, Hakediş anındaki GÜNCEL KURU çek.
-            if teklif.para_birimi != 'TRY':
-                try:
-                    # utils dosyasından import (Circular import önlemek için burada çağrılabilir)
-                    from .utils import tcmb_kur_getir 
-                    guncel_kurlar = tcmb_kur_getir()
-                    guncel_kur_str = guncel_kurlar.get(teklif.para_birimi)
-                    if guncel_kur_str:
-                        islem_kuru = to_decimal(guncel_kur_str)
-                except Exception as e:
-                    print(f"Kur çekme hatası: {e}")
-            else:
-                islem_kuru = Decimal('1.0')
+            islem_kuru = to_decimal(teklif.kur_degeri) # Varsayılan: Sabit Kur
 
-            # B) BİRİM FİYAT (KDV ARINDIRMA)
+            # Eğer view tarafında kur güncellendiyse (veya buraya kur parametresi eklenseydi)
+            # o kullanılabilirdi. Şimdilik "save" anında blocking istek yapmıyoruz.
+            
             birim_fiyat = to_decimal(teklif.birim_fiyat)
             
-            # Eğer teklif "KDV Dahil" girildiyse, hakediş matrahını bulmak için KDV'yi çıkar
             if teklif.kdv_dahil_mi:
                 kdv_orani_teklif = to_decimal(teklif.kdv_orani)
                 birim_fiyat = birim_fiyat / (Decimal('1.0') + (kdv_orani_teklif / Decimal('100.0')))
 
-            # 2. SÖZLEŞME MATRAHINI HESAPLA (TL Karşılığı)
             miktar = to_decimal(self.satinalma.toplam_miktar)
-            
-            # KDV Hariç Toplam Sözleşme Tutarı (TL)
             sozlesme_toplam_tl = birim_fiyat * miktar * islem_kuru
 
-            # 3. HAKEDİŞ TUTARINI HESAPLA (Yüzdeye Göre)
             if self.tamamlanma_orani:
                 oran = to_decimal(self.tamamlanma_orani)
                 self.brut_tutar = sozlesme_toplam_tl * (oran / Decimal('100.0'))
@@ -616,23 +503,17 @@ class Hakedis(models.Model):
             print(f"Hakediş hesaplama hatası: {e}")
             self.brut_tutar = Decimal('0.00')
 
-        # 4. KDV, STOPAJ ve NET TUTAR HESAPLAMALARI
         try:
-            # Alanlar boş gelirse 0 kabul et
             kdv_orani = to_decimal(self.kdv_orani or 0)
             stopaj_orani = to_decimal(self.stopaj_orani or 0)
             teminat_orani = to_decimal(self.teminat_orani or 0)
             avans_kesintisi = to_decimal(self.avans_kesintisi or 0)
             diger_kesintiler = to_decimal(self.diger_kesintiler or 0)
 
-            # KDV
             self.kdv_tutari = self.brut_tutar * (kdv_orani / Decimal('100.0'))
-            
-            # Kesintiler
             self.stopaj_tutari = self.brut_tutar * (stopaj_orani / Decimal('100.0'))
             self.teminat_tutari = self.brut_tutar * (teminat_orani / Decimal('100.0'))
             
-            # Net Tutar Hesabı
             toplam_alacak = self.brut_tutar + self.kdv_tutari
             toplam_kesinti = self.stopaj_tutari + self.teminat_tutari + avans_kesintisi + diger_kesintiler
             
@@ -656,15 +537,11 @@ class Hakedis(models.Model):
         ordering = ['-tarih']
 
 class Fatura(models.Model):
-    """
-    Tedarikçiden gelen resmi faturanın sisteme işlendiği model.
-    """
     satinalma = models.ForeignKey(SatinAlma, on_delete=models.CASCADE, related_name='faturalar', verbose_name="İlgili Sipariş")
     
     fatura_no = models.CharField(max_length=50, verbose_name="Fatura No")
     tarih = models.DateField(default=timezone.now, verbose_name="Fatura Tarihi")
     
-    # FloatField -> DecimalField
     miktar = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Fatura Edilen Miktar")
     tutar = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="Fatura Tutarı (KDV Dahil)")
     
@@ -677,7 +554,6 @@ class Fatura(models.Model):
         is_new = self.pk is None
         super(Fatura, self).save(*args, **kwargs)
         
-        # Sadece faturalanan miktarı güncelle (Stok/Teslimat'a dokunma!)
         if is_new:
             self.satinalma.faturalanan_miktar += self.miktar
             self.satinalma.save()
@@ -699,21 +575,16 @@ class Odeme(models.Model):
         ('havale', 'Havale / EFT'),
         ('cek', 'Çek'),
     ]
-    # GLOBAL SABİT KULLANILIYOR
     
     tedarikci = models.ForeignKey(Tedarikci, on_delete=models.CASCADE, related_name='odemeler', verbose_name="Ödenen Firma")
-    
-    # İsteğe bağlı: Ödeme direkt bir hakedişe veya siparişe yapılıyorsa seçilir
     bagli_hakedis = models.ForeignKey('Hakedis', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="İlgili Hakediş")
     
     tarih = models.DateField(default=timezone.now, verbose_name="İşlem Tarihi")
     odeme_turu = models.CharField(max_length=10, choices=ODEME_TURLERI, default='nakit', verbose_name="Ödeme Yöntemi")
     
-    # Tutar Bilgileri
     tutar = models.DecimalField(max_digits=15, decimal_places=2, verbose_name="Ödenen Tutar")
     para_birimi = models.CharField(max_length=3, choices=PARA_BIRIMI_CHOICES, default='TRY', verbose_name="Para Birimi")
     
-    # Çek / Havale Detayları
     banka_adi = models.CharField(max_length=100, blank=True, verbose_name="Banka Adı")
     cek_no = models.CharField(max_length=50, blank=True, verbose_name="Çek No / Dekont No")
     vade_tarihi = models.DateField(null=True, blank=True, verbose_name="Çek Vadesi")
@@ -722,7 +593,6 @@ class Odeme(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Eğer çek ise ve vade girilmediyse, vadeyi işlem tarihi yap (Peşin Çek)
         if self.odeme_turu == 'cek' and not self.vade_tarihi:
             self.vade_tarihi = self.tarih
         super(Odeme, self).save(*args, **kwargs)
