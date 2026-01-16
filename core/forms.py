@@ -1,12 +1,14 @@
 from django import forms
 from decimal import Decimal
 from .models import (
-    DepoTransfer, Depo, Teklif, Malzeme, 
-    IsKalemi, Tedarikci, MalzemeTalep, KDV_ORANLARI, Fatura, Hakedis, Odeme, Kategori
+    Depo, DepoTransfer, Teklif, Malzeme, IsKalemi,
+    Tedarikci, MalzemeTalep, Fatura, Hakedis, Odeme,
+    Kategori, DepoTuru, ParaBirimi, Birimler,
+    KDV_ORANLARI
 )
 
 # ========================================================
-# 0. KATEGORİ (İMALAT TÜRÜ) FORMU
+# 1. TANIMLAMA FORMLARI
 # ========================================================
 
 class KategoriForm(forms.ModelForm):
@@ -14,11 +16,56 @@ class KategoriForm(forms.ModelForm):
         model = Kategori
         fields = ['isim']
         widgets = {
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Kaba İnşaat, İnce İşler...', 'aria-label': 'Kategori Adı'}),
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Kaba İnşaat'}),
+        }
+
+class DepoForm(forms.ModelForm):
+    class Meta:
+        model = Depo
+        fields = ['isim', 'tur', 'adres']
+        widgets = {
+            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Depo Adı'}),
+            'tur': forms.Select(attrs={'class': 'form-select'}),
+            'adres': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+
+class TedarikciForm(forms.ModelForm):
+    class Meta:
+        model = Tedarikci
+        fields = ['firma_unvani', 'yetkili', 'telefon']
+        widgets = {
+            'firma_unvani': forms.TextInput(attrs={'class': 'form-control'}),
+            'yetkili': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefon': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+
+class MalzemeForm(forms.ModelForm):
+    class Meta:
+        model = Malzeme
+        # 'kdv_orani' alanını buraya ekliyoruz:
+        fields = ['isim', 'marka', 'birim', 'kritik_stok', 'kdv_orani']
+        widgets = {
+            'isim': forms.TextInput(attrs={'class': 'form-control'}),
+            'marka': forms.TextInput(attrs={'class': 'form-control'}),
+            'birim': forms.Select(attrs={'class': 'form-select'}),
+            'kritik_stok': forms.NumberInput(attrs={'class': 'form-control'}),
+            # KDV seçimi için açılır kutu:
+            'kdv_orani': forms.Select(attrs={'class': 'form-select'}),
+        }
+
+class IsKalemiForm(forms.ModelForm):
+    class Meta:
+        model = IsKalemi
+        fields = ['kategori', 'isim', 'birim', 'aciklama']
+        widgets = {
+            'kategori': forms.Select(attrs={'class': 'form-select'}),
+            'isim': forms.TextInput(attrs={'class': 'form-control'}),
+            'birim': forms.Select(attrs={'class': 'form-select'}),
+            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
 
 # ========================================================
-# 1. DEPO TRANSFER FORMU
+# 2. DEPO TRANSFER FORMU
 # ========================================================
 
 class DepoTransferForm(forms.ModelForm):
@@ -26,25 +73,25 @@ class DepoTransferForm(forms.ModelForm):
         model = DepoTransfer
         fields = ['kaynak_depo', 'hedef_depo', 'malzeme', 'miktar', 'aciklama', 'tarih']
         widgets = {
-            'kaynak_depo': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Kaynak Depo'}),
-            'hedef_depo': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Hedef Depo'}),
-            'malzeme': forms.Select(attrs={'class': 'form-select select2', 'aria-label': 'Malzeme'}),
-            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Transfer Miktarı', 'aria-label': 'Miktar'}),
-            'aciklama': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Şantiyeye Sevk', 'aria-label': 'Açıklama'}),
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Tarih'}),
+            'kaynak_depo': forms.Select(attrs={'class': 'form-select'}),
+            'hedef_depo': forms.Select(attrs={'class': 'form-select'}),
+            'malzeme': forms.Select(attrs={'class': 'form-select select2'}),
+            'miktar': forms.NumberInput(attrs={'class': 'form-control'}),
+            'aciklama': forms.TextInput(attrs={'class': 'form-control'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
         }
 
     def __init__(self, *args, **kwargs):
         super(DepoTransferForm, self).__init__(*args, **kwargs)
-        
+        # Otomatik Seçim Mantığı (Merkez -> Şantiye gibi)
         try:
-            sanal_depo = Depo.objects.filter(is_sanal=True).first()
-            fiziksel_depo = Depo.objects.filter(is_sanal=False).first()
+            merkez = Depo.objects.filter(tur=DepoTuru.MERKEZ).first()
+            santiye = Depo.objects.filter(tur=DepoTuru.KULLANIM).first()
             
-            if sanal_depo and not self.initial.get('kaynak_depo'):
-                self.fields['kaynak_depo'].initial = sanal_depo
-            if fiziksel_depo and not self.initial.get('hedef_depo'):
-                self.fields['hedef_depo'].initial = fiziksel_depo
+            if merkez and not self.initial.get('kaynak_depo'):
+                self.fields['kaynak_depo'].initial = merkez
+            if santiye and not self.initial.get('hedef_depo'):
+                self.fields['hedef_depo'].initial = santiye
         except:
             pass
 
@@ -61,205 +108,101 @@ class DepoTransferForm(forms.ModelForm):
         if kaynak == hedef:
             raise forms.ValidationError("Kaynak ve Hedef depo aynı olamaz.")
 
-        # Eksi Stok Kontrolü
-        try:
-            mevcut_stok = malzeme.depo_stogu(kaynak.id)
-            if mevcut_stok < miktar:
-                raise forms.ValidationError(
-                    f"Hata: Kaynak depoda ({kaynak.isim}) yeterli stok yok! Mevcut: {mevcut_stok}"
-                )
-        except AttributeError:
-            pass
+        # Stok Kontrolü
+        stok = malzeme.depo_stogu(kaynak.id)
+        if stok < miktar:
+            raise forms.ValidationError(f"Yetersiz Stok! {kaynak.isim} deposunda sadece {stok} adet var.")
             
         return cleaned_data
 
 # ========================================================
-# 2. TEKLİF GİRİŞ FORMU
-# ========================================================
-
-class TeklifForm(forms.ModelForm):
-    kdv_orani_secimi = forms.ChoiceField(
-        choices=[('', 'Seçiniz...')] + list(KDV_ORANLARI), 
-        label="KDV Oranı", 
-        required=True,
-        widget=forms.Select(attrs={'class': 'form-select', 'aria-label': 'KDV Oranı'})
-    )
-
-    class Meta:
-        model = Teklif
-        fields = [
-            'tedarikci', 
-            'malzeme', 'is_kalemi',
-            'miktar', 'birim_fiyat', 'para_birimi', 
-            'kdv_dahil_mi', 'teklif_dosyasi'
-        ]
-        widgets = {
-            'tedarikci': forms.Select(attrs={'class': 'form-select select2', 'aria-label': 'Tedarikçi'}),
-            'malzeme': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Malzeme'}),
-            'is_kalemi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'İş Kalemi'}),
-            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Miktar giriniz', 'aria-label': 'Miktar'}),
-            'birim_fiyat': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '0.00', 'aria-label': 'Birim Fiyat'}),
-            'para_birimi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Para Birimi'}),
-            'kdv_dahil_mi': forms.CheckboxInput(attrs={'class': 'form-check-input', 'style': 'width: 20px; height: 20px;', 'aria-label': 'KDV Dahil mi'}),
-            'teklif_dosyasi': forms.FileInput(attrs={'class': 'form-control', 'aria-label': 'Teklif Dosyası'}),
-        }
-
-    def clean(self):
-        cleaned_data = super().clean()
-        malzeme = cleaned_data.get('malzeme')
-        is_kalemi = cleaned_data.get('is_kalemi')
-
-        if not malzeme and not is_kalemi:
-            raise forms.ValidationError("Lütfen ya bir Malzeme ya da bir İş Kalemi seçiniz.")
-        if malzeme and is_kalemi:
-            raise forms.ValidationError("Hem malzeme hem hizmet seçemezsiniz. Sadece birini seçin.")
-        return cleaned_data
-
-# ========================================================
-# 3. TANIMLAMA FORMLARI
-# ========================================================
-
-class DepoForm(forms.ModelForm):
-    class Meta:
-        model = Depo
-        fields = ['isim', 'is_sanal']
-        widgets = {
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Merkez Depo, Şantiye A Deposu...'}),
-            'is_sanal': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-        }
-
-class TedarikciForm(forms.ModelForm):
-    class Meta:
-        model = Tedarikci
-        fields = ['firma_unvani', 'yetkili_kisi', 'telefon', 'adres']
-        widgets = {
-            'firma_unvani': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: ABC İnşaat Ltd. Şti.', 'aria-label': 'Firma Unvanı'}),
-            'yetkili_kisi': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ad Soyad', 'aria-label': 'Yetkili Kişi'}),
-            'telefon': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '05XX XXX XX XX', 'aria-label': 'Telefon'}),
-            'adres': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'aria-label': 'Adres'}),
-        }
-
-class MalzemeForm(forms.ModelForm):
-    class Meta:
-        model = Malzeme
-        fields = ['kategori', 'isim', 'marka', 'birim', 'kdv_orani', 'kritik_stok', 'aciklama']
-        widgets = {
-            'kategori': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Kategori'}),
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Saten Alçı', 'aria-label': 'İsim'}),
-            'marka': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Knauf', 'aria-label': 'Marka'}),
-            'birim': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Birim'}),
-            'kdv_orani': forms.Select(attrs={'class': 'form-select', 'aria-label': 'KDV Oranı'}),
-            'kritik_stok': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '10', 'aria-label': 'Kritik Stok'}),
-            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Açıklama...', 'aria-label': 'Açıklama'}),
-        }
-
-# ========================================================
-# 4. TALEP FORMLARI
+# 3. TALEP VE TEKLİF FORMLARI
 # ========================================================
 
 class TalepForm(forms.ModelForm):
     class Meta:
         model = MalzemeTalep
-        fields = ['malzeme', 'is_kalemi', 'miktar', 'oncelik', 'proje_yeri', 'aciklama']
+        fields = ['malzeme', 'miktar', 'proje_yeri', 'aciklama']
         widgets = {
-            'malzeme': forms.Select(attrs={'class': 'form-select select2', 'aria-label': 'Malzeme'}),
-            'is_kalemi': forms.Select(attrs={'class': 'form-select select2', 'aria-label': 'İş Kalemi'}),
-            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Örn: 100', 'aria-label': 'Miktar'}),
-            'oncelik': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Öncelik'}),
-            'proje_yeri': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: A Blok - 1. Kat', 'aria-label': 'Proje Yeri'}),
-            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'aria-label': 'Açıklama'}),
+            'malzeme': forms.Select(attrs={'class': 'form-select select2'}),
+            'miktar': forms.NumberInput(attrs={'class': 'form-control'}),
+            'proje_yeri': forms.TextInput(attrs={'class': 'form-control'}),
+            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
 
-    def clean(self):
-        cleaned_data = super().clean()
-        malzeme = cleaned_data.get('malzeme')
-        is_kalemi = cleaned_data.get('is_kalemi')
-
-        if not malzeme and not is_kalemi:
-            raise forms.ValidationError("Lütfen Malzeme veya İş Kalemi alanlarından birini seçiniz.")
-        if malzeme and is_kalemi:
-            raise forms.ValidationError("İkisini aynı anda seçemezsiniz.")
-        return cleaned_data
-
-class IsKalemiForm(forms.ModelForm):
+class TeklifForm(forms.ModelForm):
     class Meta:
-        model = IsKalemi
-        fields = ['kategori', 'isim', 'birim', 'hedef_miktar', 'kdv_orani', 'aciklama']
+        model = Teklif
+        fields = ['tedarikci', 'fiyat', 'para_birimi', 'kdv_orani', 'kdv_dahil_mi']
         widgets = {
-            'kategori': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Kategori'}),
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Temel Kazısı', 'aria-label': 'İsim'}),
-            'birim': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Birim'}),
-            'hedef_miktar': forms.NumberInput(attrs={'class': 'form-control', 'aria-label': 'Hedef Miktar'}),
-            'kdv_orani': forms.Select(attrs={'class': 'form-select', 'aria-label': 'KDV Oranı'}),
-            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Detay...', 'aria-label': 'Açıklama'}),
+            'tedarikci': forms.Select(attrs={'class': 'form-select form-select-lg'}), # Büyük seçim kutusu
+            'fiyat': forms.NumberInput(attrs={'class': 'form-control form-control-lg', 'placeholder': '0.00', 'oninput': 'hesapla()'}),
+            'para_birimi': forms.Select(attrs={'class': 'form-select', 'onchange': 'kurKontrol()'}),
+            'kdv_orani': forms.Select(attrs={'class': 'form-select', 'onchange': 'hesapla()'}),
+            'kdv_dahil_mi': forms.CheckboxInput(attrs={'class': 'form-check-input', 'onchange': 'hesapla()', 'style': 'transform: scale(1.5); margin-left: 10px;'}),
         }
+
+# ========================================================
+# 4. FİNANSAL FORMLAR
+# ========================================================
 
 class FaturaGirisForm(forms.ModelForm):
     class Meta:
         model = Fatura
-        fields = ['fatura_no', 'tarih', 'depo', 'miktar', 'tutar', 'dosya']
+        fields = [
+            'fatura_no', 'tedarikci', 'tarih', 'son_odeme_tarihi',
+            'tutar_kdv_haric', 'kdv_tutari', 'toplam_tutar',
+            'para_birimi', 'dosya'
+        ]
         widgets = {
-            'fatura_no': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fatura No', 'aria-label': 'Fatura No'}),
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Fatura Tarihi'}),
-            'depo': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Depo'}),
-            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'aria-label': 'Miktar'}),
-            'tutar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'aria-label': 'Tutar'}),
-            'dosya': forms.FileInput(attrs={'class': 'form-control', 'aria-label': 'Dosya'}),
+            'fatura_no': forms.TextInput(attrs={'class': 'form-control'}),
+            'tedarikci': forms.Select(attrs={'class': 'form-select'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'son_odeme_tarihi': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'tutar_kdv_haric': forms.NumberInput(attrs={'class': 'form-control'}),
+            'kdv_tutari': forms.NumberInput(attrs={'class': 'form-control'}),
+            'toplam_tutar': forms.NumberInput(attrs={'class': 'form-control'}),
+            'para_birimi': forms.Select(attrs={'class': 'form-select'}),
+            'dosya': forms.FileInput(attrs={'class': 'form-control'}),
         }
-    
-    def __init__(self, *args, **kwargs):
-        super(FaturaGirisForm, self).__init__(*args, **kwargs)
-        self.fields['depo'].required = True
-        self.fields['depo'].empty_label = "Depo Seçiniz (Zorunlu)"
 
 class HakedisForm(forms.ModelForm):
     class Meta:
         model = Hakedis
-        fields = ['hakedis_no', 'tarih', 'donem_baslangic', 'donem_bitis', 'tamamlanma_orani', 'aciklama']
+        fields = ['bu_donem_yuzde', 'hakedis_tutari', 'kesintiler_toplami', 'tarih']
         widgets = {
-            'hakedis_no': forms.NumberInput(attrs={'class': 'form-control', 'value': 1, 'aria-label': 'Hakediş No'}),
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Hakediş Tarihi'}),
-            'donem_baslangic': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Dönem Başlangıç'}),
-            'donem_bitis': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Dönem Bitiş'}),
-            'tamamlanma_orani': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Örn: 20', 'step': '0.01', 'aria-label': 'Tamamlanma Oranı'}),
-            'aciklama': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'aria-label': 'Açıklama'}),
+            'bu_donem_yuzde': forms.NumberInput(attrs={'class': 'form-control'}),
+            'hakedis_tutari': forms.NumberInput(attrs={'class': 'form-control'}),
+            'kesintiler_toplami': forms.NumberInput(attrs={'class': 'form-control'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
         }
 
 class OdemeForm(forms.ModelForm):
-    # ÇÖZÜM: Tutar alanını CharField olarak tanımlıyoruz ki virgül kabul etsin.
-    tutar = forms.CharField(
-        label="Tutar",
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '0,00', 'aria-label': 'Tutar'}),
-        required=True
-    )
-    
-    # Zorunlu olmayan alanlar
-    banka_adi = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Banka adı...', 'aria-label': 'Banka Adı'}))
-    cek_no = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Çek No...', 'aria-label': 'Çek No'}))
-    vade_tarihi = forms.DateField(required=False, widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'Vade Tarihi'}))
-    aciklama = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Açıklama...', 'aria-label': 'Açıklama'}))
+    # String olarak alıp Decimal'e çevirmek için
+    tutar = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
 
     class Meta:
         model = Odeme
-        fields = ['tedarikci', 'tarih', 'odeme_turu', 'tutar', 'para_birimi', 'banka_adi', 'cek_no', 'vade_tarihi', 'aciklama']
+        fields = [
+            'tedarikci', 'tarih', 'odeme_turu', 'tutar', 'para_birimi',
+            'banka_adi', 'cek_no', 'vade_tarihi', 'aciklama'
+        ]
         widgets = {
-            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date', 'aria-label': 'İşlem Tarihi'}),
-            'tedarikci': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Tedarikçi'}),
-            'odeme_turu': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Ödeme Türü'}),
-            'para_birimi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Para Birimi'}),
+            'tedarikci': forms.Select(attrs={'class': 'form-select'}),
+            'tarih': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'odeme_turu': forms.Select(attrs={'class': 'form-select'}),
+            'para_birimi': forms.Select(attrs={'class': 'form-select'}),
+            'banka_adi': forms.TextInput(attrs={'class': 'form-control'}),
+            'cek_no': forms.TextInput(attrs={'class': 'form-control'}),
+            'vade_tarihi': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'aciklama': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
-    # "Sayı Girin" hatasını çözen kısım:
     def clean_tutar(self):
-        tutar = self.cleaned_data.get('tutar')
-        if tutar:
-            # Gelen string değerdeki virgülü noktaya çeviriyoruz
-            if isinstance(tutar, str):
-                tutar = tutar.replace(',', '.')
-            
-            try:
-                # Sayıya çevirmeyi deniyoruz
-                return Decimal(tutar)
-            except:
-                raise forms.ValidationError("Lütfen geçerli bir sayı giriniz.")
-        return Decimal('0')
+        data = self.cleaned_data['tutar']
+        if isinstance(data, str):
+            data = data.replace(',', '.')
+        try:
+            return Decimal(data)
+        except:
+            raise forms.ValidationError("Geçerli bir sayı giriniz.")

@@ -1,115 +1,83 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yeni Talep Oluştur</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style> body { background-color: #f0f2f5; padding: 20px; } </style>
-</head>
-<body>
+{% extends 'base.html' %}
 
-<div class="container d-flex justify-content-center align-items-center" style="min-height: 90vh;">
-    <div class="card shadow-lg" style="width: 100%; max-width: 700px; border-radius: 15px; overflow: hidden;">
-        <div class="card-header bg-primary text-white p-4 text-center">
-            <h4 class="mb-0 fw-bold"><i class="fas fa-hard-hat me-2"></i> YENİ SAHA TALEBİ</h4>
-            <p class="mb-0 small opacity-75">Malzeme veya Hizmet (İşçilik) taleplerinizi buradan giriniz.</p>
-        </div>
-        <div class="card-body p-4 bg-white">
-            
-            {% if messages %}
-                {% for message in messages %}
-                    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
-
-            <form method="post">
-                {% csrf_token %}
-                
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="p-3 border rounded bg-light h-100">
-                            <label class="form-label fw-bold text-primary"><i class="fas fa-box me-1"></i> Malzeme (Satınalma)</label>
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card border-0 shadow-lg rounded-4">
+                <div class="card-header bg-primary text-white p-4 rounded-top-4 text-center">
+                    <h3 class="mb-0"><i class="fas fa-hard-hat me-2"></i> Malzeme Talebi</h3>
+                    <small>Sahadan Merkeze İhtiyaç Bildirimi</small>
+                </div>
+                <div class="card-body p-4 p-md-5">
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-secondary">İhtiyaç Duyulan Malzeme</label>
                             {{ form.malzeme }}
-                            <div class="form-text small">Çimento, Demir, Tuğla vb.</div>
+                            <div class="form-text">Listede yoksa 'Tanım Yönetimi'nden eklenmelidir.</div>
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="p-3 border rounded bg-light h-100">
-                            <label class="form-label fw-bold text-danger"><i class="fas fa-tools me-1"></i> İş Kalemi (Hizmet)</label>
-                            {{ form.is_kalemi }}
-                            <div class="form-text small">Hafriyat, Sıva İşçiliği, Kırım vb.</div>
+
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-secondary">Miktar</label>
+                                <div class="input-group">
+                                    {{ form.miktar }}
+                                    <span class="input-group-text fw-bold bg-light text-primary" id="birim-etiketi">-</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-secondary">Proje Yeri / Blok</label>
+                                {{ form.proje_yeri }}
+                            </div>
                         </div>
-                    </div>
-                </div>
 
-                <div class="row mb-3">
-                    <div class="col-6">
-                        <label class="form-label fw-bold text-secondary">Miktar</label>
-                        {{ form.miktar }}
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-bold text-secondary">Aciliyet</label>
-                        {{ form.oncelik }}
-                    </div>
-                </div>
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-secondary">Açıklama (Varsa)</label>
+                            {{ form.aciklama }}
+                        </div>
 
-                <div class="mb-3">
-                    <label class="form-label fw-bold text-secondary">Kullanılacak Yer (Mahal)</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light"><i class="fas fa-map-marker-alt"></i></span>
-                        {{ form.proje_yeri }}
-                    </div>
-                </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow-sm">
+                                <i class="fas fa-paper-plane me-2"></i> Talebi Gönder
+                            </button>
+                            <a href="{% url 'dashboard' %}" class="btn btn-light btn-lg rounded-pill text-muted">Vazgeç</a>
+                        </div>
+                    </form>
 
-                <div class="mb-4">
-                    <label class="form-label fw-bold text-secondary">Açıklama / Notlar</label>
-                    {{ form.aciklama }}
                 </div>
-
-                <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg fw-bold">
-                        <i class="fas fa-paper-plane me-2"></i> TALEBİ OLUŞTUR
-                    </button>
-                    <a href="{% url 'dashboard' %}" class="btn btn-light text-muted">İptal / Ana Menü</a>
-                </div>
-
-            </form>
+            </div>
         </div>
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const malzemeSelect = document.getElementById('id_malzeme');
-        const isKalemiSelect = document.getElementById('id_is_kalemi');
+    // View'dan gelen birim sözlüğünü al
+    const birimler = {{ birim_json|safe }};
+    
+    // Elementleri seç
+    const malzemeSelect = document.querySelector('#id_malzeme'); // Django formunun otomatik ID'si
+    const birimLabel = document.querySelector('#birim-etiketi');
 
-        function toggleInputs() {
-            if (malzemeSelect.value) {
-                isKalemiSelect.disabled = true;
-                isKalemiSelect.style.backgroundColor = "#e9ecef"; // Gri yap
-            } else {
-                isKalemiSelect.disabled = false;
-                isKalemiSelect.style.backgroundColor = "";
-            }
-
-            if (isKalemiSelect.value) {
-                malzemeSelect.disabled = true;
-                malzemeSelect.style.backgroundColor = "#e9ecef";
-            } else {
-                malzemeSelect.disabled = false;
-                malzemeSelect.style.backgroundColor = "";
-            }
+    // Fonksiyon: Seçili malzemeye göre birimi güncelle
+    function birimiGuncelle() {
+        const secilenId = malzemeSelect.value;
+        if (secilenId && birimler[secilenId]) {
+            birimLabel.textContent = birimler[secilenId];
+        } else {
+            birimLabel.textContent = '-';
         }
+    }
 
-        malzemeSelect.addEventListener('change', toggleInputs);
-        isKalemiSelect.addEventListener('change', toggleInputs);
-        
-        // Açılışta çalıştır
-        toggleInputs();
-    });
+    // Sayfa açıldığında çalıştır (Eğer form dolu geldiyse)
+    document.addEventListener('DOMContentLoaded', birimiGuncelle);
+
+    // Her seçim değiştiğinde çalıştır
+    malzemeSelect.addEventListener('change', birimiGuncelle);
 </script>
-
-</body>
-</html>
+{% endblock %}
