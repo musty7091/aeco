@@ -4,6 +4,7 @@ from django.db.models import Sum
 from django.db import transaction # Atomik işlem için eklendi
 from decimal import Decimal
 from .models import DepoTransfer, DepoHareket, SatinAlma
+from core.services import StockService
 
 @receiver(post_save, sender=DepoTransfer)
 def depo_transfer_post_save(sender, instance, created, **kwargs):
@@ -68,3 +69,16 @@ def depo_transfer_post_save(sender, instance, created, **kwargs):
             # Eğer bir siparişe bağlandıysa, siparişin durumunu güncellemek için kaydet
             if siparis_obj:
                 siparis_obj.save()
+
+@receiver(post_save, sender=DepoTransfer)
+def depo_transfer_post_save(sender, instance, created, **kwargs):
+    if created:
+        # Servisi kullanarak işlemi tek merkezden yapıyoruz
+        StockService.execute_transfer(
+            malzeme=instance.malzeme,
+            miktar=instance.miktar,
+            kaynak_depo=instance.kaynak_depo,
+            hedef_depo=instance.hedef_depo,
+            siparis=getattr(instance, 'bagli_siparis', None),
+            aciklama=f"Transfer #{instance.id} | {instance.aciklama or ''}"
+        )
