@@ -46,8 +46,8 @@ def stok_listesi(request):
     search = request.GET.get('search', '')
     
     malzemeler = Malzeme.objects.annotate(
-        hesaplanan_stok=Sum('depo_hareketleri__miktar', filter=Q(depo_hareketleri__islem_turu='giris')) - 
-                        Sum('depo_hareketleri__miktar', filter=Q(depo_hareketleri__islem_turu='cikis'))
+        hesaplanan_stok=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris')) - 
+                        Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis'))
     )
     
     if search:

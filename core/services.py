@@ -5,11 +5,13 @@ from core.models import DepoHareket
 class StockService:
     @staticmethod
     @transaction.atomic
-    def execute_transfer(malzeme, miktar, kaynak_depo, hedef_depo, siparis=None, aciklama=""):
+    def execute_transfer(malzeme, miktar, kaynak_depo, hedef_depo, siparis=None, aciklama="", tarih=None):
         """
-        Sistemdeki tüm stok hareketlerini yöneten merkezi ve atomik servis.
-        'Ya hep ya hiç' kuralı ile çalışır.
+        Sistemde stok değiştiren TEK KAPI.
         """
+        from django.utils import timezone
+        islem_tarihi = tarih or timezone.now().date()
+
         # 1. Kaynak Depodan ÇIKIŞ
         DepoHareket.objects.create(
             malzeme=malzeme,
@@ -17,6 +19,7 @@ class StockService:
             miktar=miktar,
             islem_turu='cikis',
             siparis=siparis,
+            tarih=islem_tarihi,
             aciklama=f"ÇIKIŞ: {aciklama}"
         )
 
@@ -27,6 +30,7 @@ class StockService:
             miktar=miktar,
             islem_turu='giris',
             siparis=siparis,
+            tarih=islem_tarihi,
             aciklama=f"GİRİŞ: {aciklama}"
         )
         return True

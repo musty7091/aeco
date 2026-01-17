@@ -42,8 +42,15 @@ def tcmb_kur_getir():
 def to_decimal(value, precision=2):
     if value is None or value == '':
         return Decimal('0.00')
+    
+    if isinstance(value, (Decimal, float, int)):
+        return Decimal(str(value)).quantize(
+            Decimal('1.' + '0' * precision), 
+            rounding=ROUND_HALF_UP
+        )
+    
     try:
-        # Önce stringe çevir, varsa binlik ayracı olan noktayı sil, virgülü noktaya çevir
+        # Sadece string gelirse temizlik yap
         clean_value = str(value).replace('.', '').replace(',', '.')
         return Decimal(clean_value).quantize(
             Decimal('1.' + '0' * precision), 

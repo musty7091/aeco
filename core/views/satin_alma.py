@@ -9,6 +9,7 @@ from .guvenlik import yetki_kontrol
 from core.utils import to_decimal
 from django.db.models import F
 
+
 @login_required
 def siparis_listesi(request):
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):

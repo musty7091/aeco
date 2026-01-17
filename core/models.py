@@ -225,15 +225,22 @@ class Teklif(models.Model):
 
     @property
     def toplam_fiyat_tl(self):
-        kdv_carpani = Decimal(0) if self.kdv_orani == -1 else Decimal(self.kdv_orani)
-        tutar_ham = to_decimal(self.birim_fiyat) * to_decimal(self.miktar)
+        # 1. KDV oranını güvenli şekilde al
+        kdv_orani = Decimal('0') if self.kdv_orani == -1 else Decimal(str(self.kdv_orani))
         
-        if self.kdv_dahil_mi:
-             tutar_tl = tutar_ham * to_decimal(self.kur_degeri)
-        else:
-            tutar_tl = (tutar_ham * to_decimal(self.kur_degeri)) * (Decimal('1') + (kdv_carpani / Decimal('100')))
+        # 2. Ham Tutar (Direkt Decimal'e çevirerek çarp, to_decimal'i aradan çıkar)
+        # self.birim_fiyat ve self.miktar zaten sayısal alanlar olduğu için en güvenli yol budur
+        tutar_ham = Decimal(str(self.birim_fiyat)) * Decimal(str(self.miktar))
+        
+        # 3. TL Karşılığı (Kur ile çarpım)
+        tutar_tl = tutar_ham * Decimal(str(self.kur_degeri))
+        
+        # 4. KDV Dahil değilse üzerine ekle
+        if not self.kdv_dahil_mi:
+            tutar_tl = tutar_tl * (Decimal('1') + (kdv_orani / Decimal('100')))
             
-        return tutar_tl.quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
+        # 5. Finansal yuvarlama (Kuruş hassasiyeti)
+        return tutar_tl.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @property
     def toplam_fiyat_orijinal(self):

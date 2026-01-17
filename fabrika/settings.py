@@ -27,7 +27,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'core.apps.CoreConfig',  # Sizin uygulamanız burada
+    'core.apps.CoreConfig',
+    'django.contrib.humanize',  # Sizin uygulamanız burada
 ]
 
 MIDDLEWARE = [
@@ -86,10 +87,19 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'tr' 
-TIME_ZONE = 'Europe/Istanbul'
+LANGUAGE_CODE = 'tr-tr'
 USE_I18N = True
 USE_TZ = True
+
+# ÖNEMLİ: Manuel ayarların baskın gelmesi için bunu FALSE yapmalısın
+USE_L10N = False 
+
+USE_THOUSAND_SEPARATOR = True
+NUMBER_GROUPING = 3
+
+# Türkiye Standartları
+THOUSAND_SEPARATOR = '.'   # Binlik ayraç NOKTA
+DECIMAL_SEPARATOR = ','    # Ondalık ayraç VİRGÜL
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
