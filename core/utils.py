@@ -39,12 +39,15 @@ def tcmb_kur_getir():
         
     return kurlar
 
-def to_decimal(val):
-    """
-    Gelen değeri güvenli Decimal formatına çevirir.
-    """
-    if val is None:
+def to_decimal(value, precision=2):
+    if value is None or value == '':
         return Decimal('0.00')
-    if isinstance(val, float):
-        return Decimal(str(val))
-    return Decimal(val).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
+    try:
+        # Önce stringe çevir, varsa binlik ayracı olan noktayı sil, virgülü noktaya çevir
+        clean_value = str(value).replace('.', '').replace(',', '.')
+        return Decimal(clean_value).quantize(
+            Decimal('1.' + '0' * precision), 
+            rounding=ROUND_HALF_UP
+        )
+    except:
+        return Decimal('0.00')

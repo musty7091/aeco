@@ -40,7 +40,6 @@ urlpatterns = [
     path('talep/sil/<int:talep_id>/', views.talep_sil, name='talep_sil'),
     path('arsiv/', views.arsiv_raporu, name='arsiv_raporu'),
     path('talep/geri-al/<int:talep_id>/', views.talep_arsivden_cikar, name='talep_arsivden_cikar'),
-
     path('stok-listesi/', views.stok_listesi, name='stok_listesi'),
     path('hizmet-listesi/', views.hizmet_listesi, name='hizmet_listesi'),
     path('hizmet/ekle/', views.hizmet_ekle, name='hizmet_ekle'),
@@ -73,8 +72,6 @@ urlpatterns = [
     path('tedarikci/sil/<int:pk>/', views.tedarikci_sil, name='tedarikci_sil'),
     path('malzeme/duzenle/<int:pk>/', views.malzeme_duzenle, name='malzeme_duzenle'),
     path('malzeme/sil/<int:pk>/', views.malzeme_sil, name='malzeme_sil'),
-    path('hizmet/duzenle/<int:pk>/', views.hizmet_duzenle, name='hizmet_duzenle'),
-    path('hizmet/sil/<int:pk>/', views.hizmet_sil, name='hizmet_sil'),
     path('islem-sonuc/<str:model_name>/<int:pk>/', views.islem_sonuc, name='islem_sonuc'),
     path('yazdir/<str:model_name>/<int:pk>/', views.belge_yazdir, name='belge_yazdir'),
     path('api/tedarikci-bakiye/<int:tedarikci_id>/', views.get_tedarikci_bakiye, name='api_tedarikci_bakiye'),

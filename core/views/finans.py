@@ -427,3 +427,18 @@ def get_tedarikci_bakiye(request, tedarikci_id):
         # Malzeme borcu eklenebilir, şimdilik temel mantık
         return JsonResponse({'success': True, 'kalan_bakiye': float(hakedis_borc-odenen)})
     except Exception as e: return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+def odeme_sil(request, odeme_id):
+    if not yetki_kontrol(request.user, ['MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+        
+    odeme = get_object_or_404(Odeme, id=odeme_id)
+    tedarikci_id = odeme.tedarikci.id
+    
+    # Ödeme silindiğinde bakiye property üzerinden hesaplandığı için 
+    # otomatik olarak düzelecektir. Sadece kaydı siliyoruz.
+    odeme.delete()
+    
+    messages.warning(request, "🗑️ Ödeme kaydı silindi, cari bakiye güncellendi.")
+    return redirect('tedarikci_ekstre', tedarikci_id=tedarikci_id)

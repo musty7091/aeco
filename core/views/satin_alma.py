@@ -7,6 +7,7 @@ from core.models import SatinAlma, Depo, DepoHareket, Fatura
 from core.forms import FaturaGirisForm
 from .guvenlik import yetki_kontrol
 from core.utils import to_decimal
+from django.db.models import F
 
 @login_required
 def siparis_listesi(request):
@@ -80,6 +81,9 @@ def fatura_girisi(request, siparis_id=None):
             fatura.satinalma = secili_siparis
             fatura.kayit_eden = request.user
             fatura.save()
+            SatinAlma.objects.filter(id=secili_siparis.id).update(
+                faturalanan_miktar=F('faturalanan_miktar') + fatura.miktar
+            )
 
             # Sadece hata veren alan isimlerini modelinize (core/models.py) göre düzelttim:
             DepoHareket.objects.create(
@@ -188,10 +192,19 @@ def fatura_sil(request, fatura_id):
     
     fatura = get_object_or_404(Fatura, id=fatura_id)
     siparis = fatura.satinalma
+    SatinAlma.objects.filter(id=siparis.id).update(
+        faturalanan_miktar=F('faturalanan_miktar') - fatura.miktar
+    )
     
-    # Bağlı sanal stok girişini sil
-    DepoHareket.objects.filter(fatura=fatura).delete()
+    # KRİTİK DÜZELTME: Faturaya bağlı DepoHareket kaydını bul ve sil
+    # Modelindeki alan isminin 'islem_turu' olduğunu ve 'giris' olarak kaydedildiğini hatırlayalım.
+    DepoHareket.objects.filter(
+        siparis=siparis, 
+        miktar=fatura.miktar, 
+        islem_turu='giris',
+        aciklama__icontains=fatura.fatura_no # Fatura numarası üzerinden eşleşme en güvenlisidir
+    ).delete()
     
     fatura.delete()
-    messages.warning(request, "🗑️ Fatura ve ilgili sanal stok girişi silindi.")
+    messages.warning(request, f"🗑️ {fatura.fatura_no} nolu fatura ve ilgili stok girişi silindi.")
     return redirect('siparis_detay', siparis_id=siparis.id)

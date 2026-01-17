@@ -10,6 +10,7 @@ from core.utils import to_decimal
 # ==========================================
 
 KDV_ORANLARI = [
+    (-1, 'KDV Muaf / Özel Matrah'),
     (0, '%0'), 
     (5, '%5'), 
     (10, '%10'), 
@@ -417,7 +418,7 @@ class DepoHareket(models.Model):
 class DepoTransfer(models.Model):
     kaynak_depo = models.ForeignKey(Depo, on_delete=models.CASCADE, related_name='cikis_transferleri', verbose_name="Kaynak Depo (Nereden?)")
     hedef_depo = models.ForeignKey(Depo, on_delete=models.CASCADE, related_name='giris_transferleri', verbose_name="Hedef Depo (Nereye?)")
-    
+    bagli_siparis = models.ForeignKey('SatinAlma', related_name='transferler', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Bağlı Sipariş")
     malzeme = models.ForeignKey(Malzeme, on_delete=models.CASCADE, verbose_name="Taşınacak Malzeme")
     
     miktar = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Transfer Miktarı")
