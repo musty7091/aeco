@@ -24,8 +24,7 @@
                         </div>
                         <div>
                             <h6 class="fw-bold mb-1">{{ siparis.teklif.tedarikci.firma_unvani }}</h6>
-                            
-                            <small class="d-block">Ürün / Hizmet: 
+                            <small class="d-block">Ürün: 
                                 <strong>
                                     {% if siparis.teklif.malzeme %}
                                         {{ siparis.teklif.malzeme.isim }}
@@ -36,16 +35,8 @@
                                     {% endif %}
                                 </strong>
                             </small>
-                            
                             <small class="d-block">
-                                Sipariş Bakiyesi: <strong>{{ siparis.kalan_miktar }} / {{ siparis.toplam_miktar }}</strong> 
-                                (
-                                {% if siparis.teklif.malzeme %}
-                                    {{ siparis.teklif.malzeme.get_birim_display }}
-                                {% else %}
-                                    {{ siparis.teklif.is_kalemi.get_birim_display }}
-                                {% endif %}
-                                )
+                                Bekleyen Fatura Miktarı: <strong>{{ siparis.kalan_fatura_miktar }}</strong>
                             </small>
                         </div>
                     </div>
@@ -70,21 +61,23 @@
                             <div class="col-md-6">
                                 <label class="form-label fw-bold text-primary">Fatura Miktarı</label>
                                 {{ form.miktar }}
-                                <div class="form-text">Faturada yazan miktar (Stoklara bu girecek)</div>
+                                <div class="form-text">Bu miktar <b>Sanal Stok</b> olarak eklenecektir.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold text-success">Fatura Tutarı (KDV Dahil)</label>
                                 {{ form.tutar }}
-                                <div class="form-text">Cari hesaba bu tutar işlenecek.</div>
                             </div>
                         </div>
 
                         <div class="mb-4 p-3 bg-white border rounded">
-                            <label class="form-label fw-bold"><i class="fas fa-warehouse me-1"></i> Stok Giriş Deposu / Yeri</label>
-                            {{ form.depo }}
-                            <div class="form-text text-muted">
-                                <i class="fas fa-info-circle"></i> Eğer malzeme henüz şantiyeye gelmediyse (Tedarikçi deposundaysa) "Sanal Depo" seçiniz.
-                                <br>Hizmet/Taşeron faturası giriyorsanız boş bırakabilirsiniz.
+                            <label class="form-label fw-bold"><i class="fas fa-warehouse me-1"></i> Giriş Yapılacak Yer</label>
+                            
+                            <input type="text" class="form-control bg-light" value="Tedarikçi / Sanal Depo (Otomatik)" disabled readonly>
+                            
+                            <input type="hidden" name="depo" value="{{ form.depo.initial }}">
+
+                            <div class="form-text text-danger mt-2">
+                                <i class="fas fa-exclamation-circle"></i> Fatura girildiğinde malın mülkiyeti bize geçer ancak fiziksel olarak gelmediği varsayılır. Bu yüzden stok <b>Sanal Depo</b>'ya işlenir.
                             </div>
                         </div>
 
@@ -95,7 +88,7 @@
 
                         <div class="d-grid gap-2 mt-4">
                             <button type="submit" class="btn btn-success btn-lg fw-bold">
-                                <i class="fas fa-check-circle me-2"></i> FATURAYI KAYDET & STOKLARI GÜNCELLE
+                                <i class="fas fa-save me-2"></i> FATURAYI KAYDET
                             </button>
                             <a href="{% url 'siparis_listesi' %}" class="btn btn-outline-secondary">İptal</a>
                         </div>

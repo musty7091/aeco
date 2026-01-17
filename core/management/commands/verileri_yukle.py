@@ -1,16 +1,16 @@
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 from core.models import (
     Depo, Malzeme, Tedarikci, Kategori, 
-    DepoHareket, DepoTuru, IslemTuru, Birimler
+    DepoHareket, IsKalemi, GiderKategorisi
 )
-import random
 
 class Command(BaseCommand):
-    help = 'Sisteme test verileri yükler (Fabrika Kurulumu)'
+    help = 'Sisteme test verileri yükler (Fabrika Kurulumu - Yeni Yapı)'
 
     def handle(self, *args, **kwargs):
-        self.stdout.write('🧹 Eski/Hatalı veriler temizleniyor...')
-        # Önce hareketleri sil ki ilişki hatası olmasın
+        self.stdout.write('🧹 Temizlik yapılıyor (Çakışma olmaması için)...')
+        # Temizle komutunu çağırmak yerine manuel siliyoruz (daha güvenli)
         DepoHareket.objects.all().delete()
         Malzeme.objects.all().delete()
         Depo.objects.all().delete()
@@ -18,39 +18,78 @@ class Command(BaseCommand):
         Kategori.objects.all().delete()
 
         self.stdout.write('🏗️ Depolar kuruluyor...')
-        merkez = Depo.objects.create(isim="Ana Merkez Depo", tur=DepoTuru.MERKEZ, adres="İstanbul Lojistik Merkezi")
-        santiye = Depo.objects.create(isim="Şantiye A Blok", tur=DepoTuru.KULLANIM, adres="Kadıköy Şantiye Sahası")
-        baglanti = Depo.objects.create(isim="Tedarikçi Deposu", tur=DepoTuru.BAGLANTI, adres="Sanal Depo")
+        
+        # 1. SANAL DEPO (Zorunlu - is_sanal=True)
+        sanal_depo = Depo.objects.create(
+            isim="Tedarikçi Sanal Depo", 
+            adres="Sanal (Muhasebe Kaydı İçin)", 
+            is_sanal=True
+        )
+        
+        # 2. FİZİKSEL DEPOLAR (is_sanal=False)
+        merkez = Depo.objects.create(isim="Merkez Depo", adres="İstanbul Lojistik", is_sanal=False)
+        santiye = Depo.objects.create(isim="Şantiye A Blok", adres="Proje Sahası", is_sanal=False)
 
         self.stdout.write('📂 Kategoriler tanımlanıyor...')
+        # İş Kalemleri için kategoriler
         k_insaat = Kategori.objects.create(isim="Kaba İnşaat")
-        k_elektrik = Kategori.objects.create(isim="Elektrik")
-        k_mekanik = Kategori.objects.create(isim="Mekanik")
+        k_mekanik = Kategori.objects.create(isim="Mekanik Tesisat")
 
         self.stdout.write('🚚 Tedarikçiler ekleniyor...')
-        t1 = Tedarikci.objects.create(firma_unvani="Akçansa Beton A.Ş.", yetkili="Ahmet Yılmaz", telefon="0532 100 20 30")
-        t2 = Tedarikci.objects.create(firma_unvani="Öznur Kablo", yetkili="Mehmet Demir", telefon="0533 900 80 70")
-        t3 = Tedarikci.objects.create(firma_unvani="Kardemir Demir Çelik", yetkili="Ayşe Kaya", telefon="0212 444 55 66")
+        # DÜZELTME BURADA YAPILDI (yetkili -> yetkili_kisi)
+        t1 = Tedarikci.objects.create(firma_unvani="Akçansa Beton A.Ş.", yetkili_kisi="Ahmet Yılmaz", telefon="0532 100 20 30")
+        t2 = Tedarikci.objects.create(firma_unvani="Öznur Kablo", yetkili_kisi="Mehmet Demir", telefon="0533 900 80 70")
+        t3 = Tedarikci.objects.create(firma_unvani="Koçtaş Kurumsal", yetkili_kisi="Müşteri Hizmetleri", telefon="444 55 66")
 
-        self.stdout.write('📦 Malzemeler ve Stoklar giriliyor...')
+        self.stdout.write('📦 Malzemeler tanımlanıyor...')
         
-        # Malzeme 1: Beton
-        m1 = Malzeme.objects.create(isim="C35 Hazır Beton", birim=Birimler.M3, marka="Akçansa", kritik_stok=100)
-        # Merkeze 500 m3 giriş
-        DepoHareket.objects.create(malzeme=m1, depo=merkez, islem_turu=IslemTuru.GIRIS, miktar=500, aciklama="Açılış Stoğu")
+        # Malzeme 1: Demir (İnşaat)
+        m1 = Malzeme.objects.create(
+            isim="Ø16 Nervürlü Demir", 
+            kategori='insaat', # models.py choice alanı
+            birim='ton',       # models.py choice alanı
+            marka="Kardemir", 
+            kritik_stok=10
+        )
         
-        # Malzeme 2: Demir
-        m2 = Malzeme.objects.create(isim="Ø16 Nervürlü Demir", birim=Birimler.TON, marka="Kardemir", kritik_stok=50)
-        # Merkeze 200 Ton giriş
-        DepoHareket.objects.create(malzeme=m2, depo=merkez, islem_turu=IslemTuru.GIRIS, miktar=200, aciklama="Satınalma Girişi")
-        # Şantiyeye 20 Ton sevk edilmiş (Stoktan düşer, kullanım deposuna girer)
-        # Not: Transfer mantığıyla değil, manuel giriş simülasyonuyla yapıyoruz
-        DepoHareket.objects.create(malzeme=m2, depo=merkez, islem_turu=IslemTuru.CIKIS, miktar=20, aciklama="Şantiyeye Sevk")
-        DepoHareket.objects.create(malzeme=m2, depo=santiye, islem_turu=IslemTuru.GIRIS, miktar=20, aciklama="Merkezden Gelen")
+        # Malzeme 2: Kablo (Elektrik)
+        m2 = Malzeme.objects.create(
+            isim="3x2.5 NYM Kablo", 
+            kategori='elektrik', 
+            birim='mt', 
+            marka="Öznur", 
+            kritik_stok=500
+        )
 
-        # Malzeme 3: Kablo
-        m3 = Malzeme.objects.create(isim="3x2.5 NYM Kablo", birim=Birimler.MT, marka="Öznur", kritik_stok=1000)
-        # Kritik Stok testi için az stok girelim
-        DepoHareket.objects.create(malzeme=m3, depo=merkez, islem_turu=IslemTuru.GIRIS, miktar=800, aciklama="Kritik seviye altı test")
+        # Malzeme 3: Çimento (Genel)
+        m3 = Malzeme.objects.create(
+            isim="Portland Çimento (50kg)", 
+            kategori='insaat', 
+            birim='adet', 
+            marka="Akçansa", 
+            kritik_stok=50
+        )
 
-        self.stdout.write(self.style.SUCCESS('✅ SİSTEM HAZIR! Fabrika verileri başarıyla yüklendi.'))
+        self.stdout.write('📈 Stok Hareketleri (Açılış Stokları)...')
+        
+        # Örnek 1: Merkeze açılış stoğu (Fiziksel var)
+        DepoHareket.objects.create(
+            malzeme=m1, 
+            depo=merkez, 
+            islem_turu='giris', 
+            miktar=50, 
+            aciklama="Devir / Açılış Stoğu",
+            tarih=timezone.now()
+        )
+
+        # Örnek 2: Şantiyeye biraz kablo gönderilmiş olsun
+        DepoHareket.objects.create(
+            malzeme=m2, 
+            depo=santiye, 
+            islem_turu='giris', 
+            miktar=200, 
+            aciklama="Şantiye Açılış Malzemesi",
+            tarih=timezone.now()
+        )
+
+        self.stdout.write(self.style.SUCCESS('✅ SİSTEM HAZIR! Sanal Depo ve Test Verileri Yüklendi.'))

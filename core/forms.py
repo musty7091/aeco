@@ -88,20 +88,22 @@ class TeklifForm(forms.ModelForm):
     class Meta:
         model = Teklif
         fields = [
+            'talep', # Bu alan initial veriyi yakalamak için listeye eklendi
             'tedarikci', 
             'malzeme', 'is_kalemi',
             'miktar', 'birim_fiyat', 'para_birimi', 
             'kdv_dahil_mi', 'teklif_dosyasi'
         ]
         widgets = {
-            'tedarikci': forms.Select(attrs={'class': 'form-select select2', 'aria-label': 'Tedarikçi'}),
-            'malzeme': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Malzeme'}),
-            'is_kalemi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'İş Kalemi'}),
-            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Miktar giriniz', 'aria-label': 'Miktar'}),
-            'birim_fiyat': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '0.00', 'aria-label': 'Birim Fiyat'}),
-            'para_birimi': forms.Select(attrs={'class': 'form-select', 'aria-label': 'Para Birimi'}),
-            'kdv_dahil_mi': forms.CheckboxInput(attrs={'class': 'form-check-input', 'style': 'width: 20px; height: 20px;', 'aria-label': 'KDV Dahil mi'}),
-            'teklif_dosyasi': forms.FileInput(attrs={'class': 'form-control', 'aria-label': 'Teklif Dosyası'}),
+            'talep': forms.HiddenInput(), # Ekranda görünmesin ama veriyi taşısın
+            'tedarikci': forms.Select(attrs={'class': 'form-select select2'}),
+            'malzeme': forms.Select(attrs={'class': 'form-select'}),
+            'is_kalemi': forms.Select(attrs={'class': 'form-select'}),
+            'miktar': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'birim_fiyat': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'para_birimi': forms.Select(attrs={'class': 'form-select'}),
+            'kdv_dahil_mi': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'teklif_dosyasi': forms.FileInput(attrs={'class': 'form-control'}),
         }
 
     def clean(self):
