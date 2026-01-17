@@ -28,6 +28,7 @@ urlpatterns = [
     path('cek-durum/<int:odeme_id>/', views.cek_durum_degistir, name='cek_durum_degistir'),
     path('tedarikci/<int:tedarikci_id>/', views.tedarikci_ekstresi, name='tedarikci_ekstresi'),
     path('teklif/durum/<int:teklif_id>/<str:yeni_durum>/', views.teklif_durum_guncelle, name='teklif_durum_guncelle'),
+    path('fatura/hizmet/<int:siparis_id>/', views.finans.hizmet_faturasi_giris, name='hizmet_faturasi_giris'),
     
     # 6. Hızlı Tanımlamalar (Popup/Yeni Sekme)
     path('tedarikci/ekle/', views.tedarikci_ekle, name='tedarikci_ekle'),

@@ -431,3 +431,110 @@ def odeme_sil(request, odeme_id):
     
     messages.warning(request, "🗑️ Ödeme kaydı silindi, cari bakiye güncellendi.")
     return redirect('tedarikci_ekstre', tedarikci_id=tedarikci_id)
+
+@login_required
+def fatura_girisi(request, siparis_id):
+    """
+    Bu fonksiyon artık akıllı bir yönlendiricidir.
+    Siparişin içinde 'İş Kalemi' varsa Hizmet Faturası ekranına,
+    'Malzeme' varsa Malzeme Faturası ekranına yönlendirir.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']): 
+        return redirect('erisim_engellendi')
+
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+
+    # KONTROL 1: Eğer bu bir Hizmet/Taşeron işi ise -> Hizmet Faturası ekranına git
+    if siparis.teklif.is_kalemi:
+        return redirect('hizmet_faturasi_giris', siparis_id=siparis.id)
+
+    # KONTROL 2: Eğer bu bir Malzeme işi ise -> Aşağıdaki Malzeme Faturası mantığını işlet
+    if request.method == 'POST':
+        try:
+            fatura_no = request.POST.get('fatura_no')
+            tarih = request.POST.get('tarih')
+            miktar = to_decimal(request.POST.get('miktar'))
+            tutar = to_decimal(request.POST.get('tutar'))
+            depo_id = request.POST.get('depo')
+            dosya = request.FILES.get('dosya')
+
+            depo = None
+            if depo_id:
+                depo = get_object_or_404(Depo, id=depo_id)
+
+            # Faturayı Kaydet
+            # Not: Fatura modelindeki save() metodu, siparişteki 'faturalanan_miktar'ı otomatik günceller.
+            fatura = Fatura(
+                satinalma=siparis,
+                fatura_no=fatura_no,
+                tarih=tarih,
+                miktar=miktar,
+                tutar=tutar,
+                depo=depo,
+                dosya=dosya
+            )
+            fatura.save()
+
+            messages.success(request, f"✅ Malzeme faturası (#{fatura_no}) başarıyla kaydedildi.")
+            return redirect('siparis_listesi')
+
+        except Exception as e:
+            messages.error(request, f"Kayıt hatası: {str(e)}")
+            return render(request, 'alis_faturasi.html', {'siparis': siparis, 'depolar': Depo.objects.all()})
+
+    # GET isteği ise Malzeme Faturası formunu aç
+    return render(request, 'alis_faturasi.html', {'siparis': siparis, 'depolar': Depo.objects.all()})
+
+
+@login_required
+def hizmet_faturasi_giris(request, siparis_id):
+    """
+    SADECE HİZMETLER İÇİN: Depo sormayan, stok hareketi yapmayan sade fatura ekranı.
+    """
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']): 
+        return redirect('erisim_engellendi')
+
+    siparis = get_object_or_404(SatinAlma, id=siparis_id)
+
+    # Güvenlik Kontrolü: Yanlışlıkla malzeme siparişi ile buraya gelinirse geri gönder
+    if siparis.teklif.malzeme:
+        messages.warning(request, "Malzeme siparişleri için standart fatura girişi yapmalısınız.")
+        return redirect('fatura_girisi', siparis_id=siparis.id)
+
+    if request.method == 'POST':
+        try:
+            fatura_no = request.POST.get('fatura_no')
+            tarih = request.POST.get('tarih')
+            tutar = to_decimal(request.POST.get('tutar'))
+            
+            # Hizmet faturalarında miktar takibi opsiyoneldir, girilmezse '1' kabul edilir.
+            # Ancak hakediş usulü çalışılıyorsa, o anki hakediş miktarı girilebilir.
+            miktar_str = request.POST.get('miktar')
+            if miktar_str:
+                miktar = to_decimal(miktar_str)
+            else:
+                miktar = Decimal('1') 
+
+            dosya = request.FILES.get('dosya')
+
+            # Faturayı Kaydet (Depo = None)
+            # Modelin save() metodu siparişteki finansal rakamları güncelleyecektir.
+            fatura = Fatura(
+                satinalma=siparis,
+                fatura_no=fatura_no,
+                tarih=tarih,
+                miktar=miktar,
+                tutar=tutar,
+                depo=None, # Hizmet olduğu için depo yok
+                dosya=dosya
+            )
+            fatura.save()
+
+            messages.success(request, f"✅ Hizmet faturası (#{fatura_no}) cariye işlendi.")
+            return redirect('siparis_listesi')
+
+        except Exception as e:
+            messages.error(request, f"Hata oluştu: {str(e)}")
+            return render(request, 'hizmet_faturasi.html', {'siparis': siparis})
+
+    return render(request, 'hizmet_faturasi.html', {'siparis': siparis})
