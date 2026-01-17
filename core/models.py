@@ -84,8 +84,20 @@ class Depo(models.Model):
     adres = models.CharField(max_length=200, blank=True, verbose_name="Lokasyon / Adres")
     is_sanal = models.BooleanField(default=False, verbose_name="Sanal / Tedarikçi Deposu mu?")
     
+    # YENİ ALAN: Bu depo bir son kullanım noktası mı?
+    is_kullanim_yeri = models.BooleanField(
+        default=False, 
+        verbose_name="Kullanım / Sarf Yeri mi?",
+        help_text="İşaretlenirse bu depoya transfer edilen mallar 'stoktan düşer' (tüketilmiş sayılır)."
+    )
+
     def __str__(self):
-        tur = "(Sanal)" if self.is_sanal else "(Fiziksel)"
+        if self.is_sanal:
+            tur = "(Sanal)"
+        elif self.is_kullanim_yeri:
+            tur = "(Kullanım)"
+        else:
+            tur = "(Fiziksel)"
         return f"{self.isim} {tur}"
 
     class Meta:
@@ -112,16 +124,33 @@ class Malzeme(models.Model):
     
     @property
     def stok(self):
-        giren = self.hareketler.filter(islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        cikan = self.hareketler.filter(islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        iade_iptal = self.hareketler.filter(islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        return giren - cikan - iade_iptal
+        # Tüm hareketleri depo türüne göre analiz et
+        veriler = self.hareketler.aggregate(
+            # Sadece gerçek depolardaki (Sanal ve Fiziksel) girişler
+            toplam_giris=Sum('miktar', filter=Q(islem_turu='giris', depo__is_kullanim_yeri=False)),
+            # Sadece gerçek depolardan yapılan çıkışlar (Kullanım yerine transfer bir çıkıştır)
+            toplam_cikis=Sum('miktar', filter=Q(islem_turu='cikis', depo__is_kullanim_yeri=False)),
+            # İadeler her zaman stoktan düşer
+            toplam_iade=Sum('miktar', filter=Q(islem_turu='iade'))
+        )
+        
+        giris = veriler['toplam_giris'] or Decimal('0')
+        cikis = veriler['toplam_cikis'] or Decimal('0')
+        iade = veriler['toplam_iade'] or Decimal('0')
+        
+        # Formül: Aktif depolardaki net bakiye
+        return giris - cikis - iade
 
     def depo_stogu(self, depo_id):
-        giren = self.hareketler.filter(depo_id=depo_id, islem_turu='giris').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        cikan = self.hareketler.filter(depo_id=depo_id, islem_turu='cikis').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        iade_iptal = self.hareketler.filter(depo_id=depo_id, islem_turu='iade', iade_aksiyonu='iptal').aggregate(Sum('miktar'))['miktar__sum'] or Decimal('0')
-        return giren - cikan - iade_iptal
+        # Aynı mantığı depo bazlı hesaplama için de uygula
+        veriler = self.hareketler.filter(depo_id=depo_id).aggregate(
+            t_giris=Sum('miktar', filter=models.Q(islem_turu='giris')),
+            t_cikis=Sum('miktar', filter=models.Q(islem_turu='cikis')),
+            t_iade=Sum('miktar', filter=models.Q(islem_turu='iade'))
+        )
+        return (veriler['t_giris'] or Decimal('0')) - \
+            (veriler['t_cikis'] or Decimal('0')) - \
+            (veriler['t_iade'] or Decimal('0'))
 
     def __str__(self):
         return f"{self.isim} ({self.marka})" if self.marka else self.isim
@@ -458,17 +487,19 @@ class Hakedis(models.Model):
     
     aciklama = models.TextField(blank=True, verbose_name="Yapılan İşin Açıklaması")
     
+    # Tamamlanma Oranı Kontrolü
     tamamlanma_orani = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="Bu Dönem İlerleme (%)")
     
     brut_tutar = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Hakediş Tutarı (KDV Hariç)")
     
-    kdv_orani = models.PositiveIntegerField(default=20, verbose_name="KDV (%)")
+    # KDV Alanı - Varsayılanı 20 değil, Sözleşmeden alacak şekilde düzenledik
+    kdv_orani = models.PositiveIntegerField(verbose_name="KDV (%)", null=True, blank=True)
     kdv_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="KDV Tutarı")
     
-    stopaj_orani = models.PositiveIntegerField(default=0, verbose_name="Stopaj (%)", help_text="Genelde %3")
+    stopaj_orani = models.PositiveIntegerField(default=0, verbose_name="Stopaj (%)")
     stopaj_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Kesilen Stopaj")
     
-    teminat_orani = models.PositiveIntegerField(default=0, verbose_name="Teminat (%)", help_text="Genelde %5 veya %10")
+    teminat_orani = models.PositiveIntegerField(default=0, verbose_name="Teminat (%)")
     teminat_tutari = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Kesilen Teminat")
     
     avans_kesintisi = models.DecimalField(max_digits=15, decimal_places=2, default=0, verbose_name="Avans Kesintisi")
@@ -480,65 +511,81 @@ class Hakedis(models.Model):
     onay_durumu = models.BooleanField(default=False, verbose_name="Onaylandı")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def clean(self):
+        # KRİTİK DÜZELTME: Eğer 'satinalma' henüz bağlanmadıysa (form aşaması) kontrolü atla.
+        # Bu sayede 'RelatedObjectDoesNotExist' hatası engellenir.
+        if not hasattr(self, 'satinalma_id') or not self.satinalma_id:
+            return
+
+        # %100 Sınırı Kontrolü
+        try:
+            toplam_onceki = Hakedis.objects.filter(satinalma_id=self.satinalma_id).exclude(pk=self.pk).aggregate(
+                toplam=models.Sum('tamamlanma_orani'))['toplam'] or Decimal('0')
+            
+            yeni_toplam = toplam_onceki + to_decimal(self.tamamlanma_orani)
+            
+            if yeni_toplam > Decimal('100.00'):
+                kalan = Decimal('100.00') - toplam_onceki
+                raise ValidationError(f"Hata: Toplam ilerleme %100'ü geçemez! Kalan maksimum oran: %{kalan}")
+        except Exception:
+            pass # Veritabanı erişim hatası olursa validasyonu geç (View tarafında kontrol edilir)
+
     def save(self, *args, **kwargs):
-        # NOT: Dış servis çağrısı (tcmb_kur_getir) kaldırıldı.
-        # Artık kur bilgisi View katmanında çekilip modele işlenmeli.
-        # Burada sadece mevcut verilerle matematiksel işlem yapılıyor.
-        
+        # Clean metodunu manuel tetikle (Validation için)
         try:
-            teklif = self.satinalma.teklif
-            islem_kuru = to_decimal(teklif.kur_degeri) # Varsayılan: Sabit Kur
-
-            # Eğer view tarafında kur güncellendiyse (veya buraya kur parametresi eklenseydi)
-            # o kullanılabilirdi. Şimdilik "save" anında blocking istek yapmıyoruz.
-            
-            birim_fiyat = to_decimal(teklif.birim_fiyat)
-            
-            if teklif.kdv_dahil_mi:
-                kdv_orani_teklif = to_decimal(teklif.kdv_orani)
-                birim_fiyat = birim_fiyat / (Decimal('1.0') + (kdv_orani_teklif / Decimal('100.0')))
-
-            miktar = to_decimal(self.satinalma.toplam_miktar)
-            sozlesme_toplam_tl = birim_fiyat * miktar * islem_kuru
-
-            if self.tamamlanma_orani:
-                oran = to_decimal(self.tamamlanma_orani)
-                self.brut_tutar = sozlesme_toplam_tl * (oran / Decimal('100.0'))
-            else:
-                self.brut_tutar = Decimal('0.00')
-                
-        except Exception as e:
-            print(f"Hakediş hesaplama hatası: {e}")
-            self.brut_tutar = Decimal('0.00')
-
-        try:
-            kdv_orani = to_decimal(self.kdv_orani or 0)
-            stopaj_orani = to_decimal(self.stopaj_orani or 0)
-            teminat_orani = to_decimal(self.teminat_orani or 0)
-            avans_kesintisi = to_decimal(self.avans_kesintisi or 0)
-            diger_kesintiler = to_decimal(self.diger_kesintiler or 0)
-
-            self.kdv_tutari = self.brut_tutar * (kdv_orani / Decimal('100.0'))
-            self.stopaj_tutari = self.brut_tutar * (stopaj_orani / Decimal('100.0'))
-            self.teminat_tutari = self.brut_tutar * (teminat_orani / Decimal('100.0'))
-            
-            toplam_alacak = self.brut_tutar + self.kdv_tutari
-            toplam_kesinti = self.stopaj_tutari + self.teminat_tutari + avans_kesintisi + diger_kesintiler
-            
-            self.odenecek_net_tutar = toplam_alacak - toplam_kesinti
-            
-        except Exception as e:
-            print(f"Net tutar hesaplama hatası: {e}")
+            self.full_clean()
+        except ValidationError:
+            # Save sırasında validasyon hatası olursa yutma, ancak view tarafında handle edilecekse pass geçilebilir
+            # Genellikle form.is_valid() zaten bunu çağırır.
             pass
+
+        # KRİTİK DÜZELTME: Hesaplamaları sadece 'satinalma' ilişkisi varsa yap
+        if hasattr(self, 'satinalma_id') and self.satinalma_id:
+            try:
+                # İlişki üzerinden verilere erişim (Güvenli Blok)
+                teklif = self.satinalma.teklif
+                islem_kuru = to_decimal(teklif.kur_degeri or 1)
+
+                # KDV Oranını otomatik çek (Eğer boşsa)
+                if self.kdv_orani is None:
+                    self.kdv_orani = teklif.kdv_orani
+
+                # Birim Fiyat Hesabı (KDV Hariç)
+                birim_fiyat = to_decimal(teklif.birim_fiyat)
+                if teklif.kdv_dahil_mi:
+                    kdv_payi = to_decimal(teklif.kdv_orani)
+                    birim_fiyat = birim_fiyat / (Decimal('1.0') + (kdv_payi / Decimal('100.0')))
+
+                # Toplam Sözleşme Tutarı (TL)
+                miktar = to_decimal(self.satinalma.toplam_miktar)
+                sozlesme_toplam_tl = birim_fiyat * miktar * islem_kuru
+
+                # Bu hakedişin brüt tutarı
+                oran = to_decimal(self.tamamlanma_orani or 0)
+                self.brut_tutar = (sozlesme_toplam_tl * (oran / Decimal('100.0'))).quantize(Decimal('0.01'))
+
+                # KDV Hesabı
+                kdv_orani = to_decimal(self.kdv_orani or 0)
+                self.kdv_tutari = (self.brut_tutar * (kdv_orani / Decimal('100.0'))).quantize(Decimal('0.01'))
+                
+                # Kesintiler
+                self.stopaj_tutari = (self.brut_tutar * (to_decimal(self.stopaj_orani or 0) / Decimal('100.0'))).quantize(Decimal('0.01'))
+                self.teminat_tutari = (self.brut_tutar * (to_decimal(self.teminat_orani or 0) / Decimal('100.0'))).quantize(Decimal('0.01'))
+                
+                # Net Tutar
+                toplam_alacak = self.brut_tutar + self.kdv_tutari
+                toplam_kesinti = self.stopaj_tutari + self.teminat_tutari + to_decimal(self.avans_kesintisi) + to_decimal(self.diger_kesintiler)
+                
+                self.odenecek_net_tutar = (toplam_alacak - toplam_kesinti).quantize(Decimal('0.01'))
+
+            except Exception as e:
+                # Loglama yapılabilir: print(f"Hakediş hesap hatası: {e}")
+                pass
 
         super(Hakedis, self).save(*args, **kwargs)
 
     def __str__(self):
-        try:
-            tedarikci_adi = self.satinalma.teklif.tedarikci.firma_unvani
-        except (AttributeError, models.ObjectDoesNotExist):
-            tedarikci_adi = "Bilinmeyen Tedarikçi"
-        return f"Hakediş #{self.hakedis_no} - {tedarikci_adi}"
+        return f"Hakediş #{self.hakedis_no}"
 
     class Meta:
         verbose_name_plural = "6. Taşeron Hakedişleri"

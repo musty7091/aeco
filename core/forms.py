@@ -124,10 +124,12 @@ class TeklifForm(forms.ModelForm):
 class DepoForm(forms.ModelForm):
     class Meta:
         model = Depo
-        fields = ['isim', 'is_sanal']
+        fields = ['isim', 'adres', 'is_sanal', 'is_kullanim_yeri'] # Buraya eklendi
         widgets = {
-            'isim': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Örn: Merkez Depo, Şantiye A Deposu...'}),
+            'isim': forms.TextInput(attrs={'class': 'form-control'}),
+            'adres': forms.TextInput(attrs={'class': 'form-control'}),
             'is_sanal': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'is_kullanim_yeri': forms.CheckboxInput(attrs={'class': 'form-check-input'}), # Buraya eklendi
         }
 
 class TedarikciForm(forms.ModelForm):

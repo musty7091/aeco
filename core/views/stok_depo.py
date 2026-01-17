@@ -1,11 +1,15 @@
+import json
+from decimal import Decimal
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Sum, Q, F
+from django.db.models import Sum, Q, F, Value, DecimalField
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse, HttpResponse
 from core.models import Malzeme, DepoHareket, MalzemeTalep, SatinAlma, Depo, DepoTransfer
 from core.forms import DepoTransferForm
+from core.services import StockService
 from .guvenlik import yetki_kontrol
 
 @login_required
@@ -13,15 +17,16 @@ def depo_dashboard(request):
     if not yetki_kontrol(request.user, ['SAHA_EKIBI', 'OFIS_VE_SATINALMA', 'YONETICI']): 
         return redirect('erisim_engellendi')
     
-    # N+1 Query Çözümü: Tek sorguda tüm stokları hesaplıyoruz
+    # Uzman Formülü: Giriş - Çıkış - İade (Dashboard için Coalesce ile koruma sağlandı)
     malzemeler = Malzeme.objects.annotate(
-        giren=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris')),
-        cikan=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis')),
-    ).annotate(hesaplanan_stok=F('giren') - F('cikan'))
+        giren=Coalesce(Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris')), Value(0, output_field=DecimalField())),
+        cikan=Coalesce(Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis')), Value(0, output_field=DecimalField())),
+        iadeler=Coalesce(Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='iade')), Value(0, output_field=DecimalField())),
+    ).annotate(hesaplanan_stok=F('giren') - F('cikan') - F('iadeler'))
 
     depo_ozeti = []
     for mal in malzemeler:
-        stok_degeri = mal.hesaplanan_stok or 0
+        stok_degeri = mal.hesaplanan_stok
         durum_renk = "danger" if stok_degeri <= mal.kritik_stok else ("warning" if stok_degeri <= (mal.kritik_stok * 1.5) else "success")
         depo_ozeti.append({
             'isim': mal.isim, 
@@ -45,21 +50,51 @@ def stok_listesi(request):
     
     search = request.GET.get('search', '')
     
+    # KRİTİK DÜZELTME: 
+    # hesaplanan_stok formülünde girişleri toplarken kullanım depolarını (is_kullanim_yeri=True) hariç tutuyoruz.
     malzemeler = Malzeme.objects.annotate(
-        hesaplanan_stok=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris')) - 
-                        Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis'))
+        hesaplanan_stok=Coalesce(
+            Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris', hareketler__depo__is_kullanim_yeri=False)), 
+            Value(0, output_field=DecimalField())
+        ) - Coalesce(
+            Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis')), 
+            Value(0, output_field=DecimalField())
+        ) - Coalesce(
+            Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='iade')), 
+            Value(0, output_field=DecimalField())
+        )
     )
     
     if search:
         malzemeler = malzemeler.filter(isim__icontains=search)
     
-    # Python döngüsü yerine DB seviyesinde kritik stok sayımı (Daha hızlı)
-    kritik_sayisi = sum(1 for m in malzemeler if (m.hesaplanan_stok or 0) <= m.kritik_stok)
+    # Görsel Durum Belirleme (Renkler ve Etiketler)
+    for m in malzemeler:
+        stok = m.hesaplanan_stok
+        limit = Decimal(str(m.kritik_stok or 0))
+        
+        if stok <= 0:
+            m.stok_durumu = "YOK"
+            m.stok_renk = "secondary"
+        elif stok <= limit:
+            m.stok_durumu = "KRİTİK"
+            m.stok_renk = "danger"
+        elif stok <= (limit * Decimal('1.5')):
+            m.stok_durumu = "AZALDI"
+            m.stok_renk = "warning"
+        else:
+            m.stok_durumu = "YETERLİ"
+            m.stok_renk = "success"
+
+    # İstatistikler (Filtrelenmiş stok üzerinden)
+    kritik_sayisi = sum(1 for m in malzemeler if 0 < m.hesaplanan_stok <= Decimal(str(m.kritik_stok or 0)))
+    yok_sayisi = sum(1 for m in malzemeler if m.hesaplanan_stok <= 0)
 
     return render(request, 'stok_listesi.html', {
         'malzemeler': malzemeler, 
         'search_query': search, 
-        'kritik_sayisi': kritik_sayisi
+        'kritik_sayisi': kritik_sayisi,
+        'yok_sayisi': yok_sayisi
     })
 
 @login_required
@@ -72,7 +107,7 @@ def depo_transfer(request):
 
     if siparis_id:
         siparis = get_object_or_404(SatinAlma, id=siparis_id)
-        # Çıkış miktarını tek bir aggregate ile alıyoruz
+        # Çıkış özeti
         cikis_ozeti = DepoHareket.objects.filter(siparis=siparis, islem_turu='cikis').aggregate(toplam=Sum('miktar'))
         cikis_toplami = cikis_ozeti['toplam'] or 0
         
@@ -94,11 +129,10 @@ def depo_transfer(request):
                 messages.error(request, f"⛔ Kaynak depoda yeterli stok yok! Mevcut: {kaynak_stok}")
                 return redirect(f"{request.path}?siparis_id={siparis_id}" if siparis_id else request.path)
             
-            # Yeni eklediğimiz Foreign Key artık hata vermez
             if siparis:
                 transfer.bagli_siparis = siparis
                 
-            transfer.save()
+            transfer.save() # Sinyaller üzerinden StockService'i tetikler
             messages.success(request, "✅ Transfer başarıyla kaydedildi.")
             return redirect('siparis_listesi') if siparis else redirect('stok_listesi')
     else:
@@ -124,7 +158,6 @@ def get_depo_stok(request):
             return JsonResponse({'stok': float(stok)})
         return JsonResponse({'stok': 0})
     except Exception as e:
-        print(f"HATA (get_depo_stok): {str(e)}") # Sessizce geçmek yerine terminale yazıyoruz
         return JsonResponse({'stok': 0})
 
 @login_required
@@ -135,25 +168,30 @@ def stok_rontgen(request, malzeme_id):
            "".join([f"<tr><td>{x.id}</td><td>{x.get_islem_turu_display()}</td><td>{x.depo.isim if x.depo else '-'}</td><td>{x.miktar}</td></tr>" for x in h]) + "</table>"
     return HttpResponse(html)
 
+@login_required
 def envanter_raporu(request):
     """
     PERFORMANS OPTİMİZASYONU: Uzman raporu uyarınca Group By (annotate) kullanılmıştır.
-    Sorgu sayısı N*M'den tek bir sorguya indirilmiştir.
+    Kullanım/Sarf depolarına giren malzemeler 'harcanmış' sayılır ve raporda görünmez.
     """
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI', 'MUHASEBE_FINANS']): 
         return redirect('erisim_engellendi')
     
-    # 1. Tüm hareketleri depo ve malzeme bazında gruplayıp stokları hesaplıyoruz
-    stok_verileri = DepoHareket.objects.values('depo_id', 'malzeme_id').annotate(
-        toplam_stok=Sum('miktar', filter=Q(islem_turu='giris')) - 
-                    Sum('miktar', filter=Q(islem_turu='cikis'))
-    ).filter(toplam_stok__gt=0) # Sadece stoğu 0'dan büyük olanları getir
+    # 1. KRİTİK FİLTRE: Sadece kullanım yeri OLMAYAN (is_kullanim_yeri=False) depoların stoklarını getir
+    # Böylece Şantiye'ye (Kullanım yeri) giden 180 adet otomatik olarak 'yok' sayılır.
+    stok_verileri = DepoHareket.objects.filter(
+        depo__is_kullanim_yeri=False
+    ).values('depo_id', 'malzeme_id').annotate(
+        toplam_stok=Coalesce(Sum('miktar', filter=Q(islem_turu='giris')), Value(0, output_field=DecimalField())) - 
+                    Coalesce(Sum('miktar', filter=Q(islem_turu='cikis')), Value(0, output_field=DecimalField())) -
+                    Coalesce(Sum('miktar', filter=Q(islem_turu='iade')), Value(0, output_field=DecimalField()))
+    ).filter(toplam_stok__gt=0) # Sadece gerçek stoğu kalanları listele
 
-    # 2. Modelleri tek seferde hafızaya (cache) alıyoruz (N+1 önlemek için)
+    # 2. Modelleri tek seferde hafızaya al (N+1 Query problemini önlemek için)
     depo_map = {d.id: d for d in Depo.objects.all()}
     malzeme_map = {m.id: m for m in Malzeme.objects.all()}
 
-    # 3. Veriyi şablonun (template) beklediği hiyerarşik yapıya dönüştürüyoruz
+    # 3. Veriyi şablonun beklediği hiyerarşik yapıya dönüştür
     rapor_dict = {}
     for veri in stok_verileri:
         d_id = veri['depo_id']
@@ -168,7 +206,6 @@ def envanter_raporu(request):
             'miktar': stok_miktari
         })
 
-    # Template'in beklediği liste formatına çeviriyoruz
     rapor_data = list(rapor_dict.values())
             
     return render(request, 'envanter_raporu.html', {'rapor_data': rapor_data})

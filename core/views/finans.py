@@ -17,7 +17,6 @@ def finans_dashboard(request):
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
         return redirect('erisim_engellendi')
 
-    # Kurları al ve Decimal'e çevir
     guncel_kurlar = tcmb_kur_getir()
     kur_usd = to_decimal(guncel_kurlar.get('USD', 1))
     kur_eur = to_decimal(guncel_kurlar.get('EUR', 1))
@@ -30,15 +29,10 @@ def finans_dashboard(request):
             'gbp': (tl_tutar / kur_gbp).quantize(Decimal('0.00'))
         }
     
-    # 1. İMALAT MALİYETİ (Modelden Property kullanmak yerine DB seviyesinde çekmek daha hızlıdır ama şimdilik mevcut yapıyı Decimal ile koruyoruz)
     imalat_maliyeti = Decimal('0.00')
     imalat_labels, imalat_data = [], []
-    
-    # Not: Burada loop kullanmak performans kaybıdır ancak Teklif yapısı karmaşık olduğu için (en uygun teklif seçimi vb.)
-    # şimdilik Decimal dönüşümü ile bırakıyoruz. İleride burası da query'e taşınmalı.
     kategoriler = Kategori.objects.prefetch_related('kalemler__teklifler').all()
     
-    # Dashboard istatistikleri
     toplam_kalem_sayisi = 0
     dolu_kalem_sayisi = 0
 
@@ -46,7 +40,6 @@ def finans_dashboard(request):
         kat_toplam = Decimal('0.00')
         for kalem in kat.kalemler.all():
             toplam_kalem_sayisi += 1
-            # Onaylı teklifi bul, yoksa en düşüğü al
             onayli = kalem.teklifler.filter(durum='onaylandi').first()
             if onayli:
                 kat_toplam += to_decimal(onayli.toplam_fiyat_tl)
@@ -60,35 +53,24 @@ def finans_dashboard(request):
         
         if kat_toplam > 0:
             imalat_labels.append(kat.isim)
-            imalat_data.append(float(kat_toplam)) # ChartJS float ister
+            imalat_data.append(float(kat_toplam))
             imalat_maliyeti += kat_toplam
 
-    # 2. GİDERLER (Aggregate ile Hızlı Toplama)
     harcama_tutari = Decimal('0.00')
     gider_labels, gider_data = [], []
     
     for gk in GiderKategorisi.objects.all():
-        # Veritabanında toplama (Performans O(1))
-        toplam = gk.harcamalar.aggregate(toplam=Sum('tutar'))['toplam'] or Decimal('0')
-        # Not: Harcama modelinde kur dönüşümü varsa property kullanılmalı, yoksa direkt toplanabilir.
-        # Burada basitlik adına direkt toplam aldık, kur dönüşümü gerekiyorsa modeldeki property üzerinden gidilmeli.
-        # Ancak performans için Python tarafında Decimal ile topluyoruz:
         tutar_tl = sum(to_decimal(h.tl_tutar) for h in gk.harcamalar.all())
-        
         if tutar_tl > 0:
             gider_labels.append(gk.isim)
             gider_data.append(float(tutar_tl))
             harcama_tutari += tutar_tl
 
-    # 3. BORÇLAR
-    # Tüm onaylı tekliflerin TL tutarı
-    toplam_onaylanan_borc = Decimal('0.00')
-    for ted in Tedarikci.objects.prefetch_related('teklifler').all():
-        for t in ted.teklifler.filter(durum='onaylandi'):
-            toplam_onaylanan_borc += to_decimal(t.toplam_fiyat_tl)
-            
-    toplam_odenen = Odeme.objects.aggregate(toplam=Sum('tutar'))['toplam'] or Decimal('0.00')
-    kalan_borc = toplam_onaylanan_borc - toplam_odenen
+    # Dashboard Borç Hesaplaması (Dinamik & Hassas)
+    hakedis_borcu = Hakedis.objects.filter(onay_durumu=True).aggregate(t=Sum('odenecek_net_tutar'))['t'] or Decimal('0.00')
+    fatura_borcu = Fatura.objects.aggregate(t=Sum('tutar'))['t'] or Decimal('0.00')
+    toplam_odenen = Odeme.objects.aggregate(t=Sum('tutar'))['t'] or Decimal('0.00')
+    kalan_borc = (hakedis_borcu + fatura_borcu) - toplam_odenen
     
     oran = int((dolu_kalem_sayisi/toplam_kalem_sayisi)*100) if toplam_kalem_sayisi else 0
 
@@ -241,42 +223,67 @@ def tedarikci_ekstresi(request, tedarikci_id):
 
 @login_required
 def hakedis_ekle(request, siparis_id):
-    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']): return redirect('erisim_engellendi')
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']): 
+        return redirect('erisim_engellendi')
+        
     siparis = get_object_or_404(SatinAlma, id=siparis_id)
     
     if siparis.teklif.malzeme:
         messages.warning(request, "Malzeme siparişleri için Hakediş değil, Fatura girmelisiniz.")
         return redirect('fatura_girisi', siparis_id=siparis.id)
 
+    # Mevcut ilerlemeyi sipariş ID üzerinden çekiyoruz (Obje hatasını önler)
+    mevcut_toplam_ilerleme = Hakedis.objects.filter(satinalma_id=siparis_id).aggregate(s=Sum('tamamlanma_orani'))['s'] or Decimal('0.00')
+
     if request.method == 'POST':
         form = HakedisForm(request.POST)
         if form.is_valid():
             hakedis = form.save(commit=False)
-            hakedis.satinalma = siparis
-            hakedis.onay_durumu = True
-            hakedis.save()
             
-            # Decimal ile güncelleme
+            # KRİTİK DÜZELTME: Önce ilişkiyi manuel ata
+            hakedis.satinalma = siparis 
+            
+            # %100 Kontrolü
+            yeni_oran = to_decimal(hakedis.tamamlanma_orani)
+            if (mevcut_toplam_ilerleme + yeni_oran) > Decimal('100.00'):
+                kalan = Decimal('100.00') - mevcut_toplam_ilerleme
+                messages.error(request, f"⛔ Hata: Toplam ilerleme %100'ü geçemez! Kalan kapasite: %{kalan}")
+                return render(request, 'hakedis_ekle.html', {'form': form, 'siparis': siparis, 'mevcut_toplam': mevcut_toplam_ilerleme})
+
+            # KDV ve diğer otomatik atamalar
+            hakedis.kdv_orani = siparis.teklif.kdv_orani
+            hakedis.onay_durumu = True
+            
             try:
+                # Modeli kaydet (Modeldeki save() metodu artık satinalma'yı bulabilir)
+                hakedis.save() 
+                
+                # Sipariş ilerlemesini güncelle
                 toplam_is = to_decimal(siparis.toplam_miktar)
-                yapilan_yuzde = to_decimal(hakedis.tamamlanma_orani)
-                yapilan_miktar = (toplam_is * yapilan_yuzde) / 100
+                yapilan_miktar = (toplam_is * yeni_oran) / Decimal('100.00')
                 
-                siparis.teslim_edilen += yapilan_miktar
-                siparis.faturalanan_miktar += yapilan_miktar
+                siparis.teslim_edilen = to_decimal(siparis.teslim_edilen) + yapilan_miktar
+                siparis.faturalanan_miktar = to_decimal(siparis.faturalanan_miktar) + yapilan_miktar
                 siparis.save()
-            except Exception as e:
-                print(f"Hata: {e}")
                 
-            messages.success(request, f"✅ Hakediş #{hakedis.hakedis_no} onaylandı.")
-            return redirect('siparis_listesi')
+                messages.success(request, f"✅ %{yeni_oran} oranındaki hakediş onaylandı.")
+                return redirect('siparis_listesi')
+                
+            except Exception as e:
+                messages.error(request, f"Hesaplama hatası oluştu: {str(e)}")
+                return render(request, 'hakedis_ekle.html', {'form': form, 'siparis': siparis})
     else:
-        form = HakedisForm(initial={'tarih': timezone.now().date(), 'hakedis_no': Hakedis.objects.filter(satinalma=siparis).count() + 1})
-    return render(request, 'hakedis_ekle.html', {'form': form, 'siparis': siparis})
+        form = HakedisForm(initial={
+            'tarih': timezone.now().date(), 
+            'hakedis_no': Hakedis.objects.filter(satinalma=siparis).count() + 1,
+            'kdv_orani': siparis.teklif.kdv_orani
+        })
+    
+    return render(request, 'hakedis_ekle.html', {'form': form, 'siparis': siparis, 'mevcut_toplam': mevcut_toplam_ilerleme})
 
 @login_required
 def odeme_yap(request):
-    if not yetki_kontrol(request.user, ['MUHASEBE_FINANS', 'YONETICI']): return redirect('erisim_engellendi')
+    if not yetki_kontrol(request.user, ['MU_FINANS', 'YONETICI']): return redirect('erisim_engellendi')
     
     tedarikci_id = request.GET.get('tedarikci_id') or request.POST.get('tedarikci')
     acik_kalemler = []
@@ -287,19 +294,19 @@ def odeme_yap(request):
         try:
             secilen_tedarikci = Tedarikci.objects.get(id=tedarikci_id)
             
-            # A) Hakediş Borçları (ExpressionWrapper ile DB seviyesinde fark alma)
+            # Hakedişler (Kuruş hassasiyeti için 0.01 filtresi)
             hakedisler = Hakedis.objects.filter(
                 onay_durumu=True,
                 satinalma__teklif__tedarikci=secilen_tedarikci
             ).annotate(
                 kalan=ExpressionWrapper(F('odenecek_net_tutar') - F('fiili_odenen_tutar'), output_field=DecimalField())
-            ).filter(kalan__gt=0.1)
+            ).filter(kalan__gt=0.01)
             
             for hk in hakedisler:
                 acik_kalemler.append({'id': hk.id, 'tip': 'hakedis', 'tarih': hk.tarih, 'aciklama': f"Hakediş #{hk.hakedis_no}", 'kalan_tutar': hk.kalan})
                 toplam_borc += hk.kalan
 
-            # B) Malzeme Borçları (Hesaplama karmaşık olduğu için Python'da Decimal ile yapıyoruz)
+            # Malzemeler
             malzemeler = SatinAlma.objects.filter(
                 teklif__tedarikci=secilen_tedarikci, 
                 teklif__malzeme__isnull=False
@@ -311,11 +318,11 @@ def odeme_yap(request):
                 kur = to_decimal(mal.teklif.kur_degeri)
                 kdv = to_decimal(mal.teklif.kdv_orani)
                 
-                tutar = (miktar * fiyat * kur) * (1 + kdv/100)
+                tutar = (miktar * fiyat * kur) * (Decimal('1') + (kdv/Decimal('100')))
                 odenen = to_decimal(mal.fiili_odenen_tutar)
-                kalan = tutar - odenen
+                kalan = (tutar - odenen).quantize(Decimal('0.01'))
                 
-                if kalan > 1:
+                if kalan > 0.01:
                     acik_kalemler.append({'id': mal.id, 'tip': 'malzeme', 'tarih': mal.created_at.date(), 'aciklama': f"{mal.teklif.malzeme.isim}", 'kalan_tutar': kalan})
                     toplam_borc += kalan
         except: pass
@@ -324,10 +331,9 @@ def odeme_yap(request):
         form = OdemeForm(request.POST)
         if form.is_valid():
             odeme = form.save(commit=False)
-            # String'den Decimal'e güvenli dönüşüm (virgül replace)
             try:
                 ham_tutar = str(form.cleaned_data['tutar']).replace(',', '.')
-                odeme.tutar = Decimal(ham_tutar)
+                odeme.tutar = Decimal(ham_tutar).quantize(Decimal('0.01'))
             except:
                 odeme.tutar = Decimal('0.00')
                 
@@ -336,45 +342,28 @@ def odeme_yap(request):
             dagitilacak = odeme.tutar
             secilenler = request.POST.getlist('secilen_kalem')
             
-            # Tek seçim varsa bağla
-            if len(secilenler)==1 and secilenler[0].startswith('hakedis_'):
-                try: 
-                    odeme.bagli_hakedis_id = int(secilenler[0].split('_')[1])
-                    odeme.save()
-                except: pass
-            
-            # Borç Dağıtma Algoritması
+            # Borç Dağıtma Algoritması (Kuruş Hassasiyetli)
             for secim in secilenler:
                 if dagitilacak <= 0: break
-                
                 try:
                     tip, id_str = secim.split('_')
                     if tip == 'hakedis':
                         hk = Hakedis.objects.get(id=id_str)
-                        borc = to_decimal(hk.odenecek_net_tutar) - to_decimal(hk.fiili_odenen_tutar)
+                        borc = (to_decimal(hk.odenecek_net_tutar) - to_decimal(hk.fiili_odenen_tutar)).quantize(Decimal('0.01'))
                         odenecek_kisim = min(dagitilacak, borc)
-                        
-                        hk.fiili_odenen_tutar = to_decimal(hk.fiili_odenen_tutar) + odenecek_kisim
+                        hk.fiili_odenen_tutar = (to_decimal(hk.fiili_odenen_tutar) + odenecek_kisim).quantize(Decimal('0.01'))
                         hk.save()
                         dagitilacak -= odenecek_kisim
-                        
                     elif tip == 'malzeme':
                         mal = SatinAlma.objects.get(id=id_str)
-                        # Tutar tekrar hesapla
-                        miktar = to_decimal(mal.teslim_edilen)
-                        fiyat = to_decimal(mal.teklif.birim_fiyat)
-                        kur = to_decimal(mal.teklif.kur_degeri)
-                        kdv = to_decimal(mal.teklif.kdv_orani)
-                        tutar_toplam = (miktar * fiyat * kur) * (1 + kdv/100)
-                        
-                        borc = tutar_toplam - to_decimal(mal.fiili_odenen_tutar)
+                        # Tutar hesaplama
+                        t = (to_decimal(mal.teslim_edilen) * to_decimal(mal.teklif.birim_fiyat) * to_decimal(mal.teklif.kur_degeri)) * (Decimal('1') + (to_decimal(mal.teklif.kdv_orani)/Decimal('100')))
+                        borc = (t.quantize(Decimal('0.01')) - to_decimal(mal.fiili_odenen_tutar)).quantize(Decimal('0.01'))
                         odenecek_kisim = min(dagitilacak, borc)
-                        
-                        mal.fiili_odenen_tutar = to_decimal(mal.fiili_odenen_tutar) + odenecek_kisim
+                        mal.fiili_odenen_tutar = (to_decimal(mal.fiili_odenen_tutar) + odenecek_kisim).quantize(Decimal('0.01'))
                         mal.save()
                         dagitilacak -= odenecek_kisim
-                except Exception as e:
-                    print(f"Dağıtım Hatası: {e}")
+                except: pass
 
             messages.success(request, f"✅ Ödeme kaydedildi.")
             return redirect(f"/odeme/yap/?tedarikci_id={odeme.tedarikci.id}")
