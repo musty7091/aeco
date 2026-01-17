@@ -1,97 +1,100 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ baslik }}</title>
-    <style>
-        /* GENEL AYARLAR */
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: #eee; 
-            margin: 0; 
-            padding: 20px; 
+{% extends 'base.html' %}
+
+{% block title %}{{ baslik }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* BASE.HTML'DEN GELEN MENÜLERİ GİZLE */
+    nav.navbar, .sidebar, .main-footer { display: none !important; }
+    
+    /* GENEL AYARLAR */
+    body { 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        background: #eee !important; /* Base rengini ez */
+        margin: 0; 
+        padding: 20px; 
+    }
+    
+    /* SAYFA YAPISI */
+    .page { 
+        background: white; 
+        width: 210mm; 
+        min-height: 297mm; /* Ekranda A4 gibi görünsün */
+        display: block; 
+        margin: 0 auto; 
+        padding: 20mm; 
+        box-shadow: 0 0 15px rgba(0,0,0,0.1); 
+        box-sizing: border-box; 
+    }
+    
+    .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+    .company-name { font-size: 24px; font-weight: 800; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
+    .title { font-size: 18px; margin-top: 10px; font-weight: 600; color: #555; }
+
+    /* TABLO AYARLARI */
+    .data-table { 
+        width: 100%; 
+        border-collapse: collapse; 
+        margin-bottom: 20px; 
+        table-layout: fixed; 
+    }
+    
+    .data-table th, .data-table td { 
+        padding: 10px 15px; 
+        border-bottom: 1px solid #e0e0e0; 
+        text-align: left; 
+        vertical-align: top; 
+        font-size: 14px;
+    }
+
+    .data-table th { width: 35%; background-color: #f8f9fa; font-weight: 600; color: #555; }
+    .data-table td { width: 65%; font-weight: 500; color: #000; word-wrap: break-word; }
+
+    /* ALT BİLGİ */
+    .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
+    .stamp-box { 
+        margin-top: 30px; 
+        float: right; 
+        width: 200px; 
+        height: 80px; 
+        text-align: center; 
+        border: 1px dashed #ccc; 
+        padding-top: 10px;
+        color: #999;
+    }
+
+    /* YAZDIRMA MODU (BOŞ SAYFA SORUNU İÇİN KRİTİK AYARLAR) */
+    @media print {
+        html, body {
+            height: auto;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white;
+            overflow: hidden; /* Taşmaları gizle */
         }
-        
-        /* SAYFA YAPISI */
         .page { 
-            background: white; 
-            width: 210mm; 
-            min-height: 297mm; /* Ekranda A4 gibi görünsün */
-            display: block; 
-            margin: 0 auto; 
-            padding: 20mm; 
-            box-shadow: 0 0 15px rgba(0,0,0,0.1); 
-            box-sizing: border-box; 
-        }
-        
-        .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
-        .company-name { font-size: 24px; font-weight: 800; color: #2c3e50; text-transform: uppercase; letter-spacing: 1px; }
-        .title { font-size: 18px; margin-top: 10px; font-weight: 600; color: #555; }
-
-        /* TABLO AYARLARI */
-        .data-table { 
+            box-shadow: none; 
+            margin: 0; 
             width: 100%; 
-            border-collapse: collapse; 
-            margin-bottom: 20px; 
-            table-layout: fixed; 
+            height: auto; 
+            min-height: 0; 
+            border: none; 
+            padding: 10mm; 
+            page-break-after: avoid; 
         }
+        .no-print { display: none !important; }
+        .stamp-box { border: none; }
         
-        .data-table th, .data-table td { 
-            padding: 10px 15px; 
-            border-bottom: 1px solid #e0e0e0; 
-            text-align: left; 
-            vertical-align: top; 
-            font-size: 14px;
+        /* Eğer Bakiye satırı ise koyu yap */
+        tr:last-child th, tr:last-child td {
+            font-weight: bold;
+            border-top: 2px solid #000;
         }
+    }
+</style>
+{% endblock %}
 
-        .data-table th { width: 35%; background-color: #f8f9fa; font-weight: 600; color: #555; }
-        .data-table td { width: 65%; font-weight: 500; color: #000; word-wrap: break-word; }
-
-        /* ALT BİLGİ */
-        .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
-        .stamp-box { 
-            margin-top: 30px; 
-            float: right; 
-            width: 200px; 
-            height: 80px; 
-            text-align: center; 
-            border: 1px dashed #ccc; 
-            padding-top: 10px;
-            color: #999;
-        }
-
-        /* YAZDIRMA MODU (BOŞ SAYFA SORUNU İÇİN KRİTİK AYARLAR) */
-        @media print {
-            html, body {
-                height: auto;
-                margin: 0 !important;
-                padding: 0 !important;
-                background: white;
-                overflow: hidden; /* Taşmaları gizle */
-            }
-            .page { 
-                box-shadow: none; 
-                margin: 0; 
-                width: 100%; 
-                height: auto; /* Yüksekliği içeriğe göre ayarla, 297mm zorlama */
-                min-height: 0; 
-                border: none; 
-                padding: 10mm; /* Kenar boşluğunu biraz azalt */
-                page-break-after: avoid; /* Sayfa sonu zorlamasını engelle */
-            }
-            .no-print { display: none !important; }
-            .stamp-box { border: none; }
-            
-            /* Eğer Bakiye satırı ise koyu yap */
-            tr:last-child th, tr:last-child td {
-                font-weight: bold;
-                border-top: 2px solid #000;
-            }
-        }
-    </style>
-</head>
-<body>
-
+{% block content %}
     <div class="no-print" style="text-align: center; margin-bottom: 20px; position: sticky; top: 0; background: #eee; padding: 10px; border-bottom: 1px solid #ccc; z-index: 100;">
         <button onclick="window.print()" style="padding: 10px 25px; font-size: 16px; background: #0d6efd; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">
             🖨️ YAZDIR
@@ -132,7 +135,9 @@
             Mali değeri yoktur, bilgi amaçlıdır.
         </div>
     </div>
+{% endblock %}
 
+{% block extra_js %}
     <script>
         window.onload = function() {
             setTimeout(function() {
@@ -140,5 +145,4 @@
             }, 800);
         }
     </script>
-</body>
-</html>
+{% endblock %}

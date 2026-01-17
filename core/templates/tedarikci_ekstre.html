@@ -1,92 +1,97 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ tedarikci.firma_unvani }} - Hesap Ekstresi</title>
-    <style>
-        /* GENEL SAYFA AYARLARI */
-        body { 
-            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; 
-            background: #525659; 
-            margin: 0; 
-            padding: 20px; 
-            color: #333;
-        }
-        
-        .page { 
-            background: white; 
-            width: 210mm; 
-            min-height: 297mm; 
-            margin: 0 auto; 
-            padding: 15mm; 
-            box-shadow: 0 0 15px rgba(0,0,0,0.2); 
-            box-sizing: border-box; 
-            position: relative;
-        }
+{% extends 'base.html' %}
 
-        /* ÜST BİLGİ */
-        .header {
-            display: flex; justify-content: space-between;
-            border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 20px;
-        }
-        .company-title { font-size: 22px; font-weight: 800; color: #2c3e50; text-transform: uppercase; }
-        .doc-title { font-size: 16px; font-weight: 600; color: #666; text-align: right; }
-        .meta-info { font-size: 12px; color: #555; margin-top: 5px; text-align: right; }
+{% block title %}{{ tedarikci.firma_unvani }} - Hesap Ekstresi{% endblock %}
 
-        /* FİRMA KUTUSU */
-        .info-section {
-            display: flex; justify-content: space-between; margin-bottom: 25px;
-            background-color: #f8f9fa; padding: 15px; border: 1px solid #ddd; border-radius: 4px;
-        }
-        .info-col h4 { margin: 0 0 5px 0; font-size: 14px; color: #888; text-transform: uppercase; }
-        .info-col p { margin: 0; font-size: 16px; font-weight: 700; color: #000; }
-        .info-col span { display: block; font-size: 13px; font-weight: normal; color: #555; margin-top: 2px; }
+{% block extra_css %}
+<style>
+    /* Base.html'den gelen Navbar ve menüleri bu sayfada gizle */
+    nav.navbar, .navbar, .sidebar { display: none !important; }
+    
+    /* GENEL SAYFA AYARLARI */
+    body { 
+        font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; 
+        background: #525659 !important; /* Base rengini ez */
+        margin: 0; 
+        padding: 20px; 
+        color: #333;
+    }
+    
+    .page { 
+        background: white; 
+        width: 210mm; 
+        min-height: 297mm; 
+        margin: 0 auto; 
+        padding: 15mm; 
+        box-shadow: 0 0 15px rgba(0,0,0,0.2); 
+        box-sizing: border-box; 
+        position: relative;
+    }
 
-        /* ÖZET KARTLAR */
-        .summary-box { display: flex; gap: 10px; margin-bottom: 25px; }
-        .sum-card { flex: 1; padding: 10px; text-align: right; border: 1px solid #ddd; border-radius: 4px; }
-        .sum-card.borc { background-color: #fff3cd; border-color: #ffeeba; }
-        .sum-card.odenen { background-color: #d1e7dd; border-color: #badbcc; }
-        .sum-card.bakiye { background-color: #cfe2ff; border-color: #b6d4fe; border-width: 2px; }
-        .sum-title { font-size: 11px; text-transform: uppercase; color: #666; font-weight: bold; display: block; margin-bottom: 3px; }
-        .sum-val { font-size: 16px; font-weight: 800; }
+    /* ÜST BİLGİ */
+    .header {
+        display: flex; justify-content: space-between;
+        border-bottom: 2px solid #333; padding-bottom: 15px; margin-bottom: 20px;
+    }
+    .company-title { font-size: 22px; font-weight: 800; color: #2c3e50; text-transform: uppercase; }
+    .doc-title { font-size: 16px; font-weight: 600; color: #666; text-align: right; }
+    .meta-info { font-size: 12px; color: #555; margin-top: 5px; text-align: right; }
 
-        /* TABLO */
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-        th { background-color: #2c3e50; color: white; padding: 10px 8px; text-align: left; font-weight: 600; }
-        td { padding: 10px 8px; border-bottom: 1px solid #eee; vertical-align: top; } /* Dikey hizalama üstte */
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        
-        .col-date { width: 12%; }
-        .col-desc { width: 40%; }
-        .col-money { width: 16%; text-align: right; font-family: 'Courier New', monospace; font-weight: 600; font-size: 13px; }
-        
-        /* Yeni: Döviz Alt Yazısı */
-        .fx-sub {
-            display: block;
-            font-size: 10px;
-            color: #666;
-            font-weight: normal;
-            margin-top: 3px;
-            font-style: italic;
-        }
+    /* FİRMA KUTUSU */
+    .info-section {
+        display: flex; justify-content: space-between; margin-bottom: 25px;
+        background-color: #f8f9fa; padding: 15px; border: 1px solid #ddd; border-radius: 4px;
+    }
+    .info-col h4 { margin: 0 0 5px 0; font-size: 14px; color: #888; text-transform: uppercase; }
+    .info-col p { margin: 0; font-size: 16px; font-weight: 700; color: #000; }
+    .info-col span { display: block; font-size: 13px; font-weight: normal; color: #555; margin-top: 2px; }
 
-        /* ALT BİLGİ */
-        .footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 10px; color: #777; text-align: center; }
-        .stamp-area { margin-top: 30px; display: flex; justify-content: flex-end; }
-        .stamp-box { width: 200px; height: 80px; border: 1px dashed #bbb; text-align: center; padding-top: 10px; font-size: 12px; color: #999; }
+    /* ÖZET KARTLAR */
+    .summary-box { display: flex; gap: 10px; margin-bottom: 25px; }
+    .sum-card { flex: 1; padding: 10px; text-align: right; border: 1px solid #ddd; border-radius: 4px; }
+    .sum-card.borc { background-color: #fff3cd; border-color: #ffeeba; }
+    .sum-card.odenen { background-color: #d1e7dd; border-color: #badbcc; }
+    .sum-card.bakiye { background-color: #cfe2ff; border-color: #b6d4fe; border-width: 2px; }
+    .sum-title { font-size: 11px; text-transform: uppercase; color: #666; font-weight: bold; display: block; margin-bottom: 3px; }
+    .sum-val { font-size: 16px; font-weight: 800; }
 
-        @media print {
-            body { background: white; margin: 0; padding: 0; }
-            .page { width: 100%; height: auto; box-shadow: none; margin: 0; border: none; padding: 10mm; }
-            .no-print { display: none !important; }
-            .sum-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            th { -webkit-print-color-adjust: exact; background-color: #2c3e50 !important; color: white !important; }
-        }
-    </style>
-</head>
-<body>
+    /* TABLO */
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+    th { background-color: #2c3e50; color: white; padding: 10px 8px; text-align: left; font-weight: 600; }
+    td { padding: 10px 8px; border-bottom: 1px solid #eee; vertical-align: top; } /* Dikey hizalama üstte */
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    
+    .col-date { width: 12%; }
+    .col-desc { width: 40%; }
+    .col-money { width: 16%; text-align: right; font-family: 'Courier New', monospace; font-weight: 600; font-size: 13px; }
+    
+    /* Yeni: Döviz Alt Yazısı */
+    .fx-sub {
+        display: block;
+        font-size: 10px;
+        color: #666;
+        font-weight: normal;
+        margin-top: 3px;
+        font-style: italic;
+    }
 
+    /* ALT BİLGİ */
+    .footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 10px; color: #777; text-align: center; }
+    .stamp-area { margin-top: 30px; display: flex; justify-content: flex-end; }
+    .stamp-box { width: 200px; height: 80px; border: 1px dashed #bbb; text-align: center; padding-top: 10px; font-size: 12px; color: #999; }
+
+    @media print {
+        body { background: white !important; margin: 0; padding: 0; }
+        .page { width: 100%; height: auto; box-shadow: none; margin: 0; border: none; padding: 10mm; }
+        .no-print { display: none !important; }
+        /* Toast mesajlarını baskıda gizle */
+        .toast-container { display: none !important; }
+        .sum-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        th { -webkit-print-color-adjust: exact; background-color: #2c3e50 !important; color: white !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
     <div class="no-print" style="position: sticky; top: 0; background: #333; padding: 10px; text-align: center; z-index: 999; box-shadow: 0 2px 10px rgba(0,0,0,0.3);">
         <button onclick="window.print()" style="padding: 8px 20px; font-size: 14px; font-weight:bold; background: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
             🖨️ YAZDIR / PDF KAYDET
@@ -204,11 +209,12 @@
             Bu belge <b>AECO Fabrika Yönetim Sistemi</b> tarafından {{ now|date:"d.m.Y H:i" }} tarihinde oluşturulmuştur.
         </div>
     </div>
+{% endblock %}
 
+{% block extra_js %}
     <script>
         window.onload = function() {
             setTimeout(function() { window.print(); }, 800);
         }
     </script>
-</body>
-</html>
+{% endblock %}
