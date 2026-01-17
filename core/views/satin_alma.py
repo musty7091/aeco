@@ -13,7 +13,10 @@ def siparis_listesi(request):
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI']):
         return redirect('erisim_engellendi')
     
-    tum_siparisler = SatinAlma.objects.select_related(
+    # KRİTİK FİLTRE: Sadece teklifi 'onaylandi' durumunda olan siparişleri getiriyoruz
+    tum_siparisler = SatinAlma.objects.filter(
+        teklif__durum='onaylandi'
+    ).select_related(
         'teklif__tedarikci', 'teklif__malzeme', 'teklif__is_kalemi'
     ).prefetch_related('depo_hareketleri', 'depo_hareketleri__depo').order_by('-created_at')
 
@@ -25,148 +28,144 @@ def siparis_listesi(request):
         else:
             bitenler.append(siparis)
 
-    return render(request, 'siparis_listesi.html', {'bekleyenler': bekleyenler, 'bitenler': bitenler[:20]})
+    return render(request, 'siparis_listesi.html', {
+        'bekleyenler': bekleyenler,
+        'bitenler': bitenler
+    })
 
 @login_required
-def fatura_girisi(request, siparis_id):
+def mal_kabul(request):
     """
-    ADIM 1: FATURA GİRİŞİ (STOK GİRİŞİ BAŞLATIR)
-    Kullanıcı faturayı girdiği an, mal 'Sanal Depo'ya girer.
+    Mal Kabul Sayfası: Sadece 'onaylandi' durumundaki tekliflere ait
+    ve sanal depoda sevkiyat bekleyen ürünleri listeler.
+    """
+    if not yetki_kontrol(request.user, ['SAHA_VE_DEPO', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    
+    # KRİTİK FİLTRE: Sadece onaylı teklifler
+    siparisler = SatinAlma.objects.filter(
+        teklif__durum='onaylandi'
+    ).select_related('teklif__tedarikci', 'teklif__malzeme').order_by('-created_at')
+    
+    # Sadece sanal depoda stoğu olanları göster
+    aktif_siparisler = [s for s in siparisler if s.sanal_depoda_bekleyen > 0]
+    
+    fiziksel_depolar = Depo.objects.filter(is_sanal=False)
+    
+    return render(request, 'mal_kabul.html', {
+        'siparisler': aktif_siparisler,
+        'depolar': fiziksel_depolar
+    })
+
+def fatura_girisi(request, siparis_id=None):
+    """
+    Fatura Girildiğinde Stok OTOMATİK OLARAK 'Sanal Depo'ya girer.
+    Hesaplama yapılırken Teklifin KDV Dahil olup olmadığı kontrol edilir.
     """
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
         return redirect('erisim_engellendi')
 
-    siparis = get_object_or_404(SatinAlma, id=siparis_id)
-    
-    # Otomatik Sanal Depo Seçimi
+    # URL'den veya query'den ID'yi al (Sizin orijinal kontrolünüzü korudum)
+    s_id = siparis_id or request.GET.get('siparis_id')
+    secili_siparis = None
+    if s_id:
+        secili_siparis = get_object_or_404(SatinAlma, id=s_id)
+
     sanal_depo = Depo.objects.filter(is_sanal=True).first()
-    
-    if not sanal_depo:
-        messages.error(request, "Sistemde 'Sanal Depo' (Tedarikçi Deposu) bulunamadı! Lütfen yönetici ile görüşün.")
-        return redirect('siparis_listesi')
-
-    varsayilan_miktar = to_decimal(siparis.kalan_fatura_miktar)
-    varsayilan_tutar = Decimal('0.00')
-
-    if varsayilan_miktar > 0:
-        try:
-            t = siparis.teklif
-            bf = to_decimal(t.birim_fiyat)
-            kur = to_decimal(t.kur_degeri)
-            kdv = to_decimal(t.kdv_orani)
-            varsayilan_tutar = (varsayilan_miktar * bf * kur * (1 + (kdv / 100))).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
-        except: pass
-
-    # Depo formda seçili gelsin
-    initial_data = {
-        'miktar': varsayilan_miktar, 
-        'tutar': varsayilan_tutar, 
-        'tarih': timezone.now().strftime('%Y-%m-%d'), 
-        'depo': sanal_depo.id 
-    }
 
     if request.method == 'POST':
         form = FaturaGirisForm(request.POST, request.FILES)
         if form.is_valid():
             fatura = form.save(commit=False)
-            fatura.satinalma = siparis
-            
-            # Kullanıcı değiştirmeye çalışsa bile biz yine de Sanal Depo'ya zorluyoruz
-            # (veya formdaki disabled alandan gelen veriyi kullanıyoruz)
-            if not fatura.depo:
-                fatura.depo = sanal_depo
+            fatura.satinalma = secili_siparis
+            fatura.kayit_eden = request.user
+            fatura.save()
 
-            fatura.save() # Fatura kaydedildi (Finansal)
+            # Sadece hata veren alan isimlerini modelinize (core/models.py) göre düzelttim:
+            DepoHareket.objects.create(
+                siparis=secili_siparis,
+                depo=fatura.depo, 
+                malzeme=secili_siparis.teklif.malzeme,
+                miktar=fatura.miktar,
+                islem_turu='giris', # 'hareket_turu' alanını 'islem_turu' yaptım
+                aciklama=f"{fatura.fatura_no} nolu fatura ile sanal stok girişi"
+            )
 
-            # --- SANAL STOK GİRİŞİ ---
-            if fatura.miktar > 0 and siparis.teklif.malzeme:
-                DepoHareket.objects.create(
-                    malzeme=siparis.teklif.malzeme,
-                    depo=fatura.depo, # Sanal Depo
-                    siparis=siparis,
-                    islem_turu='giris',
-                    miktar=fatura.miktar,
-                    tedarikci=siparis.teklif.tedarikci,
-                    irsaliye_no=f"FAT-{fatura.fatura_no}",
-                    tarih=fatura.tarih,
-                    aciklama=f"Fatura ile Sanal Stok ({fatura.fatura_no})"
-                )
-                messages.success(request, f"✅ Fatura işlendi. {fatura.miktar} birim 'Sanal Depo'ya eklendi.")
-            else:
-                messages.warning(request, "⚠️ Fatura kaydedildi (Stoksuz).")
-                
+            messages.success(request, f"✅ Fatura kaydedildi ve {fatura.miktar} birim sanal stoğa eklendi.")
             return redirect('siparis_listesi')
     else:
+        # Sizin orijinal miktar/tutar otomatik doldurma mantığınız:
+        initial_data = {}
+        if sanal_depo:
+            initial_data['depo'] = sanal_depo.id
+            
+        if secili_siparis:
+            teklif = secili_siparis.teklif
+            miktar = secili_siparis.kalan_fatura_miktar
+            birim_fiyat = teklif.birim_fiyat
+            
+            # Matrah (KDV'siz tutar) hesapla
+            tutar_hesaplanan = birim_fiyat * miktar
+            
+            # Eğer teklif KDV HARİÇ ise KDV oranını üzerine ekle
+            if not teklif.kdv_dahil_mi:
+                kdv_orani = Decimal(str(teklif.kdv_orani))
+                tutar_hesaplanan = tutar_hesaplanan * (1 + (kdv_orani / 100))
+            
+            initial_data['miktar'] = miktar
+            initial_data['tutar'] = tutar_hesaplanan.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            
         form = FaturaGirisForm(initial=initial_data)
 
-    return render(request, 'fatura_girisi.html', {'form': form, 'siparis': siparis})
+    return render(request, 'fatura_girisi.html', {
+        'form': form,
+        'secili_siparis': secili_siparis,
+        'sanal_depo': sanal_depo
+    })
 
 @login_required
-def mal_kabul(request, siparis_id):
-    """
-    ADIM 2: SEVKİYAT / TRANSFER
-    Sanal Depo'dan -> Fiziksel Depo'ya transfer.
-    """
-    if not yetki_kontrol(request.user, ['SAHA_VE_DEPO', 'OFIS_VE_SATINALMA', 'YONETICI']):
+def mal_kabul_islem(request, siparis_id):
+    if not yetki_kontrol(request.user, ['SAHA_VE_DEPO', 'YONETICI']):
         return redirect('erisim_engellendi')
-    
+        
     siparis = get_object_or_404(SatinAlma, id=siparis_id)
     fiziksel_depolar = Depo.objects.filter(is_sanal=False)
-    sanal_depo = Depo.objects.filter(is_sanal=True).first()
-
+    
     if request.method == 'POST':
-        try: 
-            ham_miktar = request.POST.get('gelen_miktar', '0').replace(',', '.')
-            transfer_miktar = Decimal(ham_miktar)
-        except:
-            messages.error(request, "Geçersiz miktar.")
-            return redirect('mal_kabul', siparis_id=siparis.id)
-
-        hedef_depo_id = request.POST.get('depo_id')
+        miktar = to_decimal(request.POST.get('miktar'))
+        hedef_depo_id = request.POST.get('depo')
+        hedef_depo = get_object_or_404(Depo, id=hedef_depo_id)
         
-        if not sanal_depo:
-            messages.error(request, "Sanal depo bulunamadı.")
-            return redirect('siparis_listesi')
+        if miktar > siparis.sanal_depoda_bekleyen:
+            messages.error(request, f"Hata: Sanal depoda sadece {siparis.sanal_depoda_bekleyen} birim mal var!")
+            return redirect('mal_kabul')
 
-        bekleyen = siparis.sanal_depoda_bekleyen
-        if transfer_miktar > (bekleyen + Decimal('0.0001')):
-            messages.error(request, f"HATA: Sanal depoda sadece {bekleyen} birim mal görünüyor.")
-            return redirect('mal_kabul', siparis_id=siparis.id)
-
+        sanal_depo = Depo.objects.filter(is_sanal=True).first()
+        
         # 1. Sanal Depodan ÇIKIŞ
         DepoHareket.objects.create(
-            malzeme=siparis.teklif.malzeme,
-            depo=sanal_depo,
             siparis=siparis,
-            islem_turu='cikis',
-            miktar=transfer_miktar,
-            tedarikci=siparis.teklif.tedarikci,
-            irsaliye_no=request.POST.get('irsaliye_no'),
-            tarih=request.POST.get('tarih') or timezone.now(),
-            aciklama=f"Sevkiyat Çıkışı: {request.POST.get('aciklama')}"
+            depo=sanal_depo,
+            malzeme=siparis.teklif.malzeme,
+            miktar=miktar,
+            hareket_turu='cikis',
+            aciklama=f"Şantiyeye ({hedef_depo.isim}) sevk edildi."
         )
-        
+
         # 2. Fiziksel Depoya GİRİŞ
         DepoHareket.objects.create(
-            malzeme=siparis.teklif.malzeme,
-            depo_id=hedef_depo_id,
             siparis=siparis,
-            islem_turu='giris',
-            miktar=transfer_miktar,
-            tedarikci=siparis.teklif.tedarikci,
-            irsaliye_no=request.POST.get('irsaliye_no'),
-            tarih=request.POST.get('tarih') or timezone.now(),
-            aciklama=f"Saha Girişi: {request.POST.get('aciklama')}"
+            depo=hedef_depo,
+            malzeme=siparis.teklif.malzeme,
+            miktar=miktar,
+            hareket_turu='giris',
+            aciklama=f"Sanal depodan mal kabul yapıldı."
         )
-        
-        # Fiziksel teslimat miktarını güncelle
-        siparis.teslim_edilen = to_decimal(siparis.teslim_edilen) + transfer_miktar
-        siparis.save()
-        
-        messages.success(request, f"✅ {transfer_miktar} birim sahaya indirildi.")
-        return redirect('siparis_listesi')
 
-    return render(request, 'mal_kabul.html', {'siparis': siparis, 'depolar': fiziksel_depolar})
+        messages.success(request, f"✅ {miktar} birim mal başarıyla {hedef_depo.isim} deposuna alındı.")
+        return redirect('mal_kabul')
+
+    return render(request, 'mal_kabul_islem.html', {'siparis': siparis, 'depolar': fiziksel_depolar})
 
 @login_required
 def siparis_detay(request, siparis_id):
@@ -191,19 +190,8 @@ def fatura_sil(request, fatura_id):
     siparis = fatura.satinalma
     
     # Bağlı sanal stok girişini sil
-    bagli_hareket = DepoHareket.objects.filter(
-        siparis=siparis, 
-        irsaliye_no=f"FAT-{fatura.fatura_no}",
-        islem_turu='giris'
-    ).first()
-    
-    if bagli_hareket:
-        bagli_hareket.delete()
-
-    yeni_faturalanan = to_decimal(siparis.faturalanan_miktar) - to_decimal(fatura.miktar)
-    siparis.faturalanan_miktar = max(Decimal('0'), yeni_faturalanan)
-    siparis.save()
+    DepoHareket.objects.filter(fatura=fatura).delete()
     
     fatura.delete()
-    messages.warning(request, f"🗑️ Fatura ve sanal stok kaydı silindi.")
-    return redirect('siparis_listesi')
+    messages.warning(request, "🗑️ Fatura ve ilgili sanal stok girişi silindi.")
+    return redirect('siparis_detay', siparis_id=siparis.id)

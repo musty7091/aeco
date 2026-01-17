@@ -46,6 +46,7 @@
 
         <form method="post" enctype="multipart/form-data" id="teklifForm">
             {% csrf_token %}
+            {{ form.talep }}
 
             <div class="mb-4">
                 <label class="form-label">Tedarikçi Firma</label>

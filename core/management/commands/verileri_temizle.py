@@ -1,41 +1,42 @@
 from django.core.management.base import BaseCommand
-from core.models import (
-    Fatura, Hakedis, DepoTransfer, DepoHareket, Odeme, Harcama,
-    SatinAlma, Teklif, MalzemeTalep, Malzeme, IsKalemi, 
-    Kategori, Tedarikci, Depo, GiderKategorisi
-)
+from django.apps import apps
+from django.db import connection
 
 class Command(BaseCommand):
-    help = 'Kullanıcılar hariç tüm veritabanını temizler'
+    help = 'Kullanıcılar hariç core uygulamasındaki tüm verileri temizler'
 
     def handle(self, *args, **kwargs):
-        self.stdout.write(self.style.WARNING("⚠️ Veriler siliniyor..."))
+        self.stdout.write(self.style.WARNING("⚠️ Tüm veriler (Kullanıcılar hariç) siliniyor..."))
         
-        # İlişki sırasına göre silmek önemlidir (Önce çocuk, sonra ebeveyn)
-        models_to_delete = [
-            Hakedis,       # Satınalmaya bağlı
-            Fatura,        # Satınalmaya bağlı
-            DepoHareket,   # Malzeme ve Depoya bağlı
-            DepoTransfer,  # Depolara bağlı
-            Odeme,         # Hakediş ve Tedarikçiye bağlı
-            Harcama,       # Gider Kategorisine bağlı
-            SatinAlma,     # Teklife bağlı
-            Teklif,        # Talep ve Tedarikçiye bağlı
-            MalzemeTalep,  # Malzeme ve Kullanıcıya bağlı
-            
-            # Ana Tanımlar
-            Malzeme, 
-            IsKalemi, 
-            Kategori,      # İş Kalemleri için
-            Tedarikci, 
-            Depo, 
-            GiderKategorisi
-        ]
+        # Core uygulamasındaki tüm modelleri al
+        core_models = apps.get_app_config('core').get_models()
         
-        for model in models_to_delete:
-            count = model.objects.all().count()
-            model.objects.all().delete()
-            if count > 0:
-                self.stdout.write(f"- {model.__name__}: {count} kayıt silindi.")
-            
-        self.stdout.write(self.style.SUCCESS('✅ Veritabanı başarıyla temizlendi (Kullanıcı hesapları korundu).'))
+        # İlişkisel veri tabanlarında (PostgreSQL, MySQL, SQLite) 
+        # Foreign Key hataları almamak için kısıtlamaları geçici olarak kapatıyoruz
+        with connection.cursor() as cursor:
+            if connection.vendor == 'sqlite':
+                cursor.execute('PRAGMA foreign_keys = OFF;')
+            elif connection.vendor == 'postgresql':
+                cursor.execute('SET CONSTRAINTS ALL DEFERRED;')
+            else:
+                cursor.execute('SET FOREIGN_KEY_CHECKS = 0;')
+
+            for model in core_models:
+                # Kullanıcı modelini asla silme (User modeli genelde django.contrib.auth içindedir ama önlem olarak)
+                if model.__name__ in ['User', 'UserProfile']: 
+                    continue
+                
+                count = model.objects.all().count()
+                if count > 0:
+                    model.objects.all().delete()
+                    self.stdout.write(f"- {model.__name__}: {count} kayıt silindi.")
+
+            # Kısıtlamaları tekrar aç
+            if connection.vendor == 'sqlite':
+                cursor.execute('PRAGMA foreign_keys = ON;')
+            elif connection.vendor == 'postgresql':
+                pass # Postgres otomatik geri açar
+            else:
+                cursor.execute('SET FOREIGN_KEY_CHECKS = 1;')
+
+        self.stdout.write(self.style.SUCCESS('✅ Envanter, stoklar ve tüm raporlar başarıyla temizlendi.'))

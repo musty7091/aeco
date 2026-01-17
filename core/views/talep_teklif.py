@@ -9,15 +9,8 @@ from core.forms import TalepForm, TeklifForm
 from core.utils import tcmb_kur_getir
 from .guvenlik import yetki_kontrol
 
-# ==========================================
-# İCMAL VE TALEP YÖNETİMİ
-# ==========================================
-
 @login_required
 def icmal_raporu(request):
-    """
-    Ana Satınalma Paneli (Dashboard)
-    """
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
         return redirect('erisim_engellendi')
 
@@ -26,8 +19,6 @@ def icmal_raporu(request):
     ).select_related('malzeme', 'is_kalemi', 'talep_eden').prefetch_related('teklifler', 'teklifler__tedarikci').order_by('-oncelik', '-tarih')
 
     aktif_talepler = list(talepler_query)
-    
-    # En uygun teklifi işaretleme mantığı
     for talep in aktif_talepler:
         teklifler = talep.teklifler.all()
         if teklifler:
@@ -58,10 +49,6 @@ def talep_olustur(request):
         form = TalepForm()
     return render(request, 'talep_olustur.html', {'form': form})
 
-# ==========================================
-# TEKLİF YÖNETİMİ
-# ==========================================
-
 @login_required
 def teklif_ekle(request):
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
@@ -73,21 +60,19 @@ def teklif_ekle(request):
 
     if talep_id:
         secili_talep = get_object_or_404(MalzemeTalep, id=talep_id)
-        
-        # Miktarın forma dolmasını sağlayan kritik eşleşme:
+        # Miktarın forma dolmasını sağlayan sözlük yapısı
         initial_data = {
             'talep': secili_talep.id,
             'miktar': secili_talep.miktar, 
             'malzeme': secili_talep.malzeme,
             'is_kalemi': secili_talep.is_kalemi,
         }
-        # KDV oranını başlangıçta seçili getir
+        # KDV oranını talebe göre başlangıçta seçili getir
         if secili_talep.malzeme:
             initial_data['kdv_orani_secimi'] = secili_talep.malzeme.kdv_orani
         elif secili_talep.is_kalemi:
             initial_data['kdv_orani_secimi'] = secili_talep.is_kalemi.kdv_orani
 
-    # Mevcut kur ve JS harita mantığı (Aynen korundu)
     guncel_kurlar = tcmb_kur_getir()
     kurlar_dict = {k: float(v) for k, v in guncel_kurlar.items()}
     kurlar_dict['TRY'] = 1.0
@@ -99,22 +84,23 @@ def teklif_ekle(request):
         form = TeklifForm(request.POST, request.FILES)
         if form.is_valid():
             teklif = form.save(commit=False)
-            
-            # Formdan gelen talep verisini ve ilişkileri garantiye al
             if talep_id:
                 teklif.talep = secili_talep
                 if secili_talep.malzeme: teklif.malzeme = secili_talep.malzeme
                 if secili_talep.is_kalemi: teklif.is_kalemi = secili_talep.is_kalemi
 
-            # Kur ve KDV değerlerini işle
-            if 'kdv_orani_secimi' in form.cleaned_data:
+            # KDV ve Kur değerlerini işle
+            if form.cleaned_data.get('kdv_orani_secimi'):
                 teklif.kdv_orani = float(int(form.cleaned_data['kdv_orani_secimi']))
-            teklif.kur_degeri = guncel_kurlar.get(teklif.para_birimi, Decimal('1.0'))
             
+            teklif.kur_degeri = guncel_kurlar.get(teklif.para_birimi, Decimal('1.0'))
             teklif.save()
-            messages.success(request, "✅ Teklif başarıyla kaydedildi.")
+            messages.success(request, f"✅ Teklif başarıyla kaydedildi.")
             return redirect('icmal_raporu')
+        else:
+            messages.error(request, "Lütfen formdaki hataları düzeltiniz.")
     else:
+        # Formu başlangıç verileriyle (miktar dahil) başlat
         form = TeklifForm(initial=initial_data)
 
     context = {
@@ -134,33 +120,40 @@ def teklif_durum_guncelle(request, teklif_id, yeni_durum):
 
     teklif = get_object_or_404(Teklif, id=teklif_id)
     eski_durum = teklif.durum
-    teklif.durum = yeni_durum
-    teklif.save()
-    
-    if yeni_durum == 'onaylandi' and eski_durum != 'onaylandi':
-        # Talebi de onayla
+
+    # MANTIK HATASI DÜZELTME: Çift onay kontrolü
+    if yeni_durum == 'onaylandi':
+        if teklif.talep:
+            zaten_onayli_var_mi = Teklif.objects.filter(
+                talep=teklif.talep, 
+                durum='onaylandi'
+            ).exclude(id=teklif.id).exists()
+
+            if zaten_onayli_var_mi:
+                messages.error(request, "❌ HATA: Bu talebe ait başka bir teklif zaten onaylanmış! İkinci bir onaya izin verilmez.")
+                referer = request.META.get('HTTP_REFERER')
+                return redirect(referer) if referer else redirect('icmal_raporu')
+
+        # Onay süreci işlemleri
         if teklif.talep:
             teklif.talep.durum = 'onaylandi'
             teklif.talep.save()
-            
-        # Sipariş Kaydı Oluştur (SatinAlma)
+
         SatinAlma.objects.get_or_create(
             teklif=teklif,
             defaults={
                 'toplam_miktar': teklif.miktar, 
                 'teslim_edilen': 0, 
-                'faturalanan_miktar': 0,
                 'siparis_tarihi': timezone.now()
             }
         )
     
+    teklif.durum = yeni_durum
+    teklif.save()
+    
     messages.success(request, f"Teklif durumu '{yeni_durum}' olarak güncellendi.")
     referer = request.META.get('HTTP_REFERER')
     return redirect(referer) if referer else redirect('icmal_raporu')
-
-# ==========================================
-# TALEP ONAY / ARŞİV İŞLEMLERİ
-# ==========================================
 
 @login_required
 def talep_onayla(request, talep_id):
@@ -214,5 +207,5 @@ def talep_arsivden_cikar(request, talep_id):
     if talep.durum == 'tamamlandi':
         talep.durum = 'onaylandi'
         talep.save()
-        messages.success(request, f"♻️ Talep arşivden çıkarıldı ve aktif listeye geri döndü.")
+        messages.success(request, f"♻️ {talep.malzeme.isim if talep.malzeme else talep.is_kalemi.isim} arşivden çıkarıldı.")
     return redirect('arsiv_raporu')
