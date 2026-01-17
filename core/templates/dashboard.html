@@ -14,12 +14,10 @@
         box-shadow: 0 10px 30px rgba(0,0,0,0.05); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         border: 2px solid transparent; position: relative; overflow: hidden;
         display: flex; flex-direction: column; justify-content: center; align-items: center; height: 220px;
-        cursor: pointer;
     }
-    .module-card.disabled { opacity: 0.6; cursor: not-allowed; background: #f8f9fa; }
-    .module-card:not(.disabled):hover { transform: translateY(-8px); box-shadow: 0 15px 35px rgba(0,0,0,0.1); border-color: #3498db; }
+    .module-card:hover { transform: translateY(-8px); box-shadow: 0 15px 35px rgba(0,0,0,0.1); border-color: #3498db; }
     .module-card i { font-size: 3.5rem; margin-bottom: 20px; color: #3498db; transition: color 0.3s; }
-    .module-card:not(.disabled):hover i { color: #0d6efd; transform: scale(1.1); }
+    .module-card:hover i { color: #0d6efd; transform: scale(1.1); }
     .module-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 10px; display: block; }
     .module-desc { font-size: 0.9rem; color: #95a5a6; display: block; }
     .card-teklif { border-bottom: 5px solid #f1c40f; }
@@ -45,7 +43,7 @@
     <div class="main-container">
         <div class="welcome-text">
             <h1>🏭 AECO FABRİKA YÖNETİMİ</h1>
-            <p>Hoşgeldiniz, <strong>{{ request.user.username|upper }}</strong>. <br>Şu an sistemin <strong>Faz-1 (Depo & Stok)</strong> modülü aktiftir.</p>
+            <p>Hoşgeldiniz, <strong>{{ request.user.username|upper }}</strong>. Lütfen işlem yapmak istediğiniz modülü seçiniz.</p>
         </div>
 
         <div class="text-center mb-5">
@@ -55,45 +53,38 @@
         </div>
 
         <div class="module-grid">
-            <a href="{% url 'depo_listesi' %}" class="module-card card-depo">
-                <i class="fas fa-warehouse" style="color: #e67e22;"></i>
-                <span class="module-title">Depo & Stok</span>
-                <span class="module-desc">Depo Durumu, Transferler ve Stok Hareketleri</span>
-            </a>
-
-            
-            <a href="{% url 'talep_listesi' %}?durum=islemde" class="module-card card-teklif">
-                {% if teklif_bekleyenler > 0 %}
-                <div class="badge-notify">{{ teklif_bekleyenler }}</div>
+            <a href="{% url 'icmal_raporu' %}" class="module-card card-teklif">
+                {% if bekleyen_talep_sayisi > 0 %}
+                <div class="badge-notify">{{ bekleyen_talep_sayisi }}</div>
                 {% endif %}
-                
                 <i class="fas fa-file-invoice-dollar" style="color: #f1c40f;"></i>
                 <span class="module-title">Teklif Yönetimi</span>
-                <span class="module-desc">Fiyat Toplama ve Onay</span>
-            </a>            
-
-            <div class="module-card card-teklif disabled" style="border-bottom: 5px solid #ccc;">
-                <i class="fas fa-box-open" style="color: #ccc;"></i>
-                <span class="module-title">Mal Kabul & Sipariş</span>
-                <span class="module-desc">Henüz Aktif Değil</span>
-            </div>
-            
-            <div class="module-card card-odeme disabled" style="border-bottom: 5px solid #ccc;">
-                <i class="fas fa-money-check-alt" style="color: #ccc;"></i>
-                <span class="module-title">Hakediş & Ödeme</span>
-                <span class="module-desc">Henüz Aktif Değil</span>
-            </div>
-
-            <div class="module-card card-finans disabled" style="border-bottom: 5px solid #ccc;">
-                <i class="fas fa-chart-pie" style="color: #ccc;"></i>
-                <span class="module-title">Finansal Rapor</span>
-                <span class="module-desc">Henüz Aktif Değil</span>
-            </div>
-            
-             <a href="{% url 'stok_hareketleri' %}" class="module-card card-finans" style="border-bottom: 5px solid #17a2b8;">
-                <i class="fas fa-history" style="color: #17a2b8;"></i>
-                <span class="module-title">Hareket Geçmişi</span>
-                <span class="module-desc">Tüm giriş, çıkış ve transfer kayıtları</span>
+                <span class="module-desc">İcmal Listesi, Fiyat Karşılaştırma ve Tedarikçi Seçimi</span>
+            </a>
+            <a href="{% url 'siparis_listesi' %}" class="module-card card-teklif" style="border-bottom: 5px solid #69dcff;">
+                <i class="fas fa-box-open" style="color: #ff50f0;"></i>
+                <span class="module-title">Onaylı Teklifler & Mal Kabul</span>
+                <span class="module-desc">Onaylı Tekliflerin Takibi ve Gelen Malların Kaydı</span>
+            </a>
+            <a href="{% url 'tanim_yonetimi' %}" class="module-card card-depo">
+                <i class="fas fa-truck-loading" style="color: #e67e22;"></i>
+                <span class="module-title">Tanım Yönetimi</span>
+                <span class="module-desc">Stok, Hizmet, Tedarikçi ve Kategori Tanımlamaları</span>
+            </a>
+            <a href="{% url 'odeme_dashboard' %}" class="module-card card-odeme">
+                <i class="fas fa-money-check-alt" style="color: #e74c3c;"></i>
+                <span class="module-title">Hakediş & Cari Ödemeleri</span>
+                <span class="module-desc">Taşeron Hakedişleri, Borç Kapama ve Çek Takibi</span>
+            </a>
+            <a href="{% url 'envanter_raporu' %}" class="module-card card-finans" style="border-bottom: 5px solid #17a2b8;">
+                <i class="fas fa-clipboard-list" style="color: #17a2b8;"></i>
+                <span class="module-title">Envanter Raporu</span>
+                <span class="module-desc">Depo Stok Durumu ve Depolar Arası Transferler</span>
+            </a>
+            <a href="{% url 'finans_dashboard' %}" class="module-card card-finans">
+                <i class="fas fa-chart-pie" style="color: #2ecc71;"></i>
+                <span class="module-title">Finansal Özet Raporu</span>
+                <span class="module-desc">Bütçe Durumu, Masraf Girişi</span>
             </a>
         </div>
     </div>

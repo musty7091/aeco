@@ -1,53 +1,34 @@
 {% extends 'base.html' %}
-
+{% block title %}Depo Listesi | AECO{% endblock %}
+{% block extra_css %}<style>.container { max-width: 900px; margin-top: 50px; }</style>{% endblock %}
 {% block content %}
-<div class="container mt-4">
+<div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>🏭 Depo Listesi</h2>
-        <div class="btn-group">
-            <a href="{% url 'depo_transfer' %}" class="btn btn-warning shadow-sm">
-                <i class="fas fa-exchange-alt"></i> Transfer Yap
-            </a>
-            <button class="btn btn-primary shadow-sm" disabled>
-                <i class="fas fa-plus"></i> Depo Ekle
-            </button>
+        <div>
+            <a href="{% url 'tanim_yonetimi' %}" class="btn btn-outline-secondary rounded-pill me-2 shadow-sm"><i class="fas fa-arrow-left me-1"></i> Tanım Yönetimi</a>
+            <h3 class="d-inline-block fw-bold align-middle mb-0 text-dark">Depo Listesi</h3>
         </div>
+        <a href="{% url 'depo_ekle' %}" class="btn btn-dark rounded-pill px-4 shadow-sm"><i class="fas fa-plus me-2"></i> Yeni Depo</a>
     </div>
-
-    <div class="row">
-        {% for depo in depolar %}
-        <div class="col-md-4 mb-4">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <h5 class="card-title fw-bold">{{ depo.isim }}</h5>
-                        {% if depo.tur == 'merkez' %}
-                            <span class="badge bg-primary">Merkez</span>
-                        {% elif depo.tur == 'baglanti' %}
-                            <span class="badge bg-info text-dark">Sanal (Tedarikçi)</span>
-                        {% else %}
-                            <span class="badge bg-warning text-dark">Şantiye</span>
-                        {% endif %}
-                    </div>
-                    <p class="card-text text-muted small mt-2">
-                        <i class="fas fa-map-marker-alt me-1"></i> {{ depo.adres|default:"Adres Girilmemiş" }}
-                    </p>
-                    <hr>
-                    <div class="d-grid gap-2">
-                        <a href="{% url 'depo_detay' depo.id %}" class="btn btn-outline-dark btn-sm">
-                            <i class="fas fa-boxes me-1"></i> Stokları Gör
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% empty %}
-        <div class="col-12">
-            <div class="alert alert-info">
-                Henüz tanımlı bir depo yok. Lütfen Admin panelinden depo ekleyiniz.
-            </div>
-        </div>
-        {% endfor %}
+    <div class="table-card">
+        <table class="table table-hover align-middle">
+            <thead class="table-light"><tr><th scope="col" style="width: 50px;">#</th><th scope="col">Depo Adı</th><th scope="col">Tür</th><th scope="col" class="text-end" style="width: 200px;">İşlemler</th></tr></thead>
+            <tbody>
+                {% for depo in depolar %}
+                <tr>
+                    <td class="fw-bold text-muted">{{ forloop.counter }}</td>
+                    <td class="fw-bold">{{ depo.isim }}</td>
+                    <td>{% if depo.is_sanal %}<span class="badge bg-warning text-dark"><i class="fas fa-cloud me-1"></i> Sanal</span>{% else %}<span class="badge bg-success"><i class="fas fa-warehouse me-1"></i> Fiziksel</span>{% endif %}</td>
+                    <td class="text-end">
+                        <a href="{% url 'depo_duzenle' pk=depo.id %}" class="btn btn-sm btn-outline-primary me-1" title="Düzenle"><i class="fas fa-edit"></i></a>
+                        <a href="{% url 'depo_sil' pk=depo.id %}" class="btn btn-sm btn-outline-danger" title="Sil" onclick="return confirm('Silmek istediğinize emin misiniz?');"><i class="fas fa-trash-alt"></i></a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="4" class="text-center py-4 text-muted"><i class="fas fa-info-circle me-2"></i> Henüz tanımlı bir depo yok.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}

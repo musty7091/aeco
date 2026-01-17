@@ -1,10 +1,34 @@
 import json
-from django.shortcuts import render, redirect, get_object_or_404
+from decimal import Decimal
+from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from core.models import MalzemeTalep, Malzeme, Teklif
+from django.utils import timezone
+from core.models import MalzemeTalep, Teklif, Malzeme, IsKalemi, SatinAlma
 from core.forms import TalepForm, TeklifForm
+from core.utils import tcmb_kur_getir
+from .guvenlik import yetki_kontrol
 
+@login_required
+def icmal_raporu(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    talepler_query = MalzemeTalep.objects.filter(
+        durum__in=['bekliyor', 'islemde', 'onaylandi']
+    ).select_related('malzeme', 'is_kalemi', 'talep_eden').prefetch_related('teklifler', 'teklifler__tedarikci').order_by('-oncelik', '-tarih')
+
+    aktif_talepler = list(talepler_query)
+    for talep in aktif_talepler:
+        teklifler = talep.teklifler.all()
+        if teklifler:
+            try:
+                en_uygun = min(teklifler, key=lambda t: t.toplam_fiyat_tl)
+                talep.en_uygun_teklif_id = en_uygun.id
+            except ValueError: pass
+
+    context = {'aktif_talepler': aktif_talepler}
+    return render(request, 'icmal.html', context)
 
 @login_required
 def talep_olustur(request):
@@ -12,125 +36,145 @@ def talep_olustur(request):
         form = TalepForm(request.POST)
         if form.is_valid():
             talep = form.save(commit=False)
-            talep.talep_eden = request.user
-            talep.durum = 'bekliyor'
+            talep.talep_eden = request.user 
+            talep.durum = 'bekliyor' 
             talep.save()
             
-            messages.success(request, f"{talep.malzeme.isim} için talep oluşturuldu.")
-            return redirect('dashboard')
+            talep_adi = talep.malzeme.isim if talep.malzeme else (talep.is_kalemi.isim if talep.is_kalemi else "Yeni Talep")
+            messages.success(request, f"✅ {talep_adi} talebiniz oluşturuldu ve satınalma ekranına düştü.")
+            return redirect('icmal_raporu') 
         else:
-            messages.error(request, "Formda hata var.")
+            messages.error(request, "Lütfen alanları kontrol ediniz.")
     else:
         form = TalepForm()
-
-    # EKLENEN KISIM: Malzeme ID -> Birim eşleşmesi
-    # Örn: {1: 'Adet', 2: 'M3', 5: 'Kg'} gibi bir sözlük hazırlayıp sayfaya gönderiyoruz.
-    birim_sozlugu = {m.id: m.get_birim_display() for m in Malzeme.objects.all()}
-
-    context = {
-        'form': form,
-        'birim_json': json.dumps(birim_sozlugu) # JavaScript okusun diye JSON'a çevirdik
-    }
-
-    return render(request, 'talep_olustur.html', context)
-
-# Talebi silme/iptal etme (Opsiyonel ama gerekli)
-@login_required
-def talep_sil(request, talep_id):
-    talep = get_object_or_404(MalzemeTalep, id=talep_id)
-    
-    # Sadece kendi talebini veya admin silebilir kuralı eklenebilir
-    if talep.durum == 'bekliyor':
-        talep.delete()
-        messages.info(request, "Talep silindi.")
-    else:
-        messages.error(request, "İşleme alınmış talep silinemez!")
-        
-    return redirect('dashboard')
+    return render(request, 'talep_olustur.html', {'form': form})
 
 @login_required
-def talep_listesi(request):
-    # Talepleri tarihe göre (en yeni en üstte) sırala
-    talepler = MalzemeTalep.objects.all().order_by('-tarih')
-    
-    # İsteğe bağlı filtreleme (Örn: ?durum=bekliyor)
-    durum_filtresi = request.GET.get('durum')
-    if durum_filtresi:
-        talepler = talepler.filter(durum=durum_filtresi)
+def teklif_ekle(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
 
-    context = {
-        'talepler': talepler
-    }
-    return render(request, 'talep_listesi.html', context)
+    talep_id = request.GET.get('talep_id')
+    secili_talep = None
+    initial_data = {}
 
-# --- TALEP DURUM DEĞİŞTİRME (ONAY/RED) ---
-@login_required
-def talep_durum_degistir(request, talep_id, yeni_durum):
-    talep = get_object_or_404(MalzemeTalep, id=talep_id)
-    
-    # Sadece geçerli durumlar
-    if yeni_durum in ['islemde', 'red', 'bekliyor']:
-        talep.durum = yeni_durum
-        talep.save()
-        
-        msg = "Talep onaylandı ve işleme alındı." if yeni_durum == 'islemde' else "Talep reddedildi."
-        if yeni_durum == 'bekliyor': msg = "Talep tekrar beklemeye alındı."
-        
-        messages.success(request, f"{talep.malzeme.isim} - {msg}")
-    
-    return redirect('talep_listesi')
+    if talep_id:
+        secili_talep = get_object_or_404(MalzemeTalep, id=talep_id)
+        initial_data['miktar'] = secili_talep.miktar
+        if secili_talep.malzeme:
+            initial_data['malzeme'] = secili_talep.malzeme
+            initial_data['kdv_orani_secimi'] = secili_talep.malzeme.kdv_orani
+        if secili_talep.is_kalemi:
+            initial_data['is_kalemi'] = secili_talep.is_kalemi
+            initial_data['kdv_orani_secimi'] = secili_talep.is_kalemi.kdv_orani
 
-@login_required
-def teklif_yonetimi(request, talep_id):
-    talep = get_object_or_404(MalzemeTalep, id=talep_id)
-    teklifler = Teklif.objects.filter(talep=talep).order_by('fiyat') # En ucuz en üstte
-    
-    context = {
-        'talep': talep,
-        'teklifler': teklifler
-    }
-    return render(request, 'teklif_yonetimi.html', context)
+    guncel_kurlar = tcmb_kur_getir()
+    kurlar_dict = {k: float(v) for k, v in guncel_kurlar.items()}
+    kurlar_dict['TRY'] = 1.0
+    kurlar_json = json.dumps(kurlar_dict)
+    malzeme_kdv_map = {m.id: m.kdv_orani for m in Malzeme.objects.all()}
+    hizmet_kdv_map = {h.id: h.kdv_orani for h in IsKalemi.objects.all()}
 
-# --- YENİ TEKLİF GİR ---
-@login_required
-def teklif_ekle(request, talep_id):
-    talep = get_object_or_404(MalzemeTalep, id=talep_id)
-    
     if request.method == 'POST':
-        form = TeklifForm(request.POST)
+        form = TeklifForm(request.POST, request.FILES)
         if form.is_valid():
             teklif = form.save(commit=False)
-            teklif.talep = talep 
+            if talep_id:
+                talep_obj = get_object_or_404(MalzemeTalep, id=talep_id)
+                teklif.talep = talep_obj 
+                if talep_obj.malzeme: teklif.malzeme = talep_obj.malzeme
+                if talep_obj.is_kalemi: teklif.is_kalemi = talep_obj.is_kalemi
+
+            teklif.kdv_orani = float(int(form.cleaned_data['kdv_orani_secimi']))
+            teklif.kur_degeri = guncel_kurlar.get(teklif.para_birimi, Decimal('1.0'))
             teklif.save()
-            messages.success(request, "Fiyat teklifi kaydedildi.")
-            return redirect('teklif_yonetimi', talep_id=talep.id)
+            messages.success(request, f"✅ Teklif başarıyla kaydedildi.")
+            return redirect('icmal_raporu')
+        else:
+            messages.error(request, "Lütfen formdaki hataları düzeltiniz.")
     else:
-        # DEĞİŞİKLİK BURADA:
-        # Malzemenin kendi kartındaki 'kdv_orani' bilgisini alıp forma koyuyoruz.
-        initial_data = {
-            'kdv_orani': talep.malzeme.kdv_orani,  # Malzeme kartından gelen oran
-            'para_birimi': 'TRY'
-        }
         form = TeklifForm(initial=initial_data)
 
-    return render(request, 'teklif_ekle.html', {
-        'form': form, 
-        'talep': talep
-    })
+    context = {
+        'form': form, 'kurlar_json': kurlar_json, 'guncel_kurlar': guncel_kurlar,
+        'secili_talep': secili_talep, 'malzeme_kdv_json': json.dumps(malzeme_kdv_map), 'hizmet_kdv_json': json.dumps(hizmet_kdv_map),
+    }
+    return render(request, 'teklif_ekle.html', context)
 
 @login_required
-def teklif_onayla(request, teklif_id):
-    secilen_teklif = get_object_or_404(Teklif, id=teklif_id)
-    talep = secilen_teklif.talep
+def teklif_durum_guncelle(request, teklif_id, yeni_durum):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+
+    teklif = get_object_or_404(Teklif, id=teklif_id)
+    eski_durum = teklif.durum
+    teklif.durum = yeni_durum
+    teklif.save()
     
-    # 1. Bu talebe ait diğer tüm teklifleri reddet, bunu onayla
-    Teklif.objects.filter(talep=talep).update(durum='reddedildi')
-    secilen_teklif.durum = 'onaylandi'
-    secilen_teklif.save()
+    if yeni_durum == 'onaylandi' and eski_durum != 'onaylandi':
+        if teklif.talep:
+            teklif.talep.durum = 'onaylandi'
+            teklif.talep.save()
+        SatinAlma.objects.get_or_create(
+            teklif=teklif,
+            defaults={'toplam_miktar': teklif.miktar, 'teslim_edilen': 0, 'siparis_tarihi': timezone.now()}
+        )
     
-    # 2. Talebin durumunu 'tamamlandi' yap (Artık sipariş aşamasına geçecek)
-    talep.durum = 'tamamlandi'
-    talep.save()
-    
-    messages.success(request, f"{secilen_teklif.tedarikci} firmasından gelen teklif onaylandı! Sipariş oluşturulabilir.")
-    return redirect('teklif_yonetimi', talep_id=talep.id)
+    messages.success(request, f"Teklif durumu '{yeni_durum}' olarak güncellendi.")
+    referer = request.META.get('HTTP_REFERER')
+    return redirect(referer) if referer else redirect('icmal_raporu')
+
+@login_required
+def talep_onayla(request, talep_id):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    talep = get_object_or_404(MalzemeTalep, id=talep_id)
+    if talep.durum == 'bekliyor':
+        talep.durum = 'islemde'
+        talep.onay_tarihi = timezone.now()
+        talep.save()
+        talep_adi = talep.malzeme.isim if talep.malzeme else talep.is_kalemi.isim
+        messages.success(request, f"✅ Talep onaylandı: {talep_adi} için teklif süreci başladı.")
+    return redirect('icmal_raporu')
+
+@login_required
+def talep_tamamla(request, talep_id):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    talep = get_object_or_404(MalzemeTalep, id=talep_id)
+    talep_adi = talep.malzeme.isim if talep.malzeme else talep.is_kalemi.isim
+    if talep.durum == 'onaylandi':
+        talep.durum = 'tamamlandi'
+        talep.save()
+        messages.success(request, f"📦 {talep_adi} talebi arşivlendi ve listeden kaldırıldı.")
+    return redirect('icmal_raporu')
+
+@login_required
+def talep_sil(request, talep_id):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        messages.error(request, "Silme yetkiniz yok!")
+        return redirect('icmal_raporu')
+    talep = get_object_or_404(MalzemeTalep, id=talep_id)
+    talep_adi = talep.malzeme.isim if talep.malzeme else talep.is_kalemi.isim
+    talep.delete()
+    messages.warning(request, f"🗑️ {talep_adi} talebi silindi.")
+    return redirect('icmal_raporu')
+
+@login_required
+def arsiv_raporu(request):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'MUHASEBE_FINANS', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    arsiv_talepler = MalzemeTalep.objects.filter(durum='tamamlandi').select_related('malzeme', 'talep_eden').prefetch_related('teklifler__tedarikci').order_by('-temin_tarihi', '-tarih')
+    context = {'aktif_talepler': arsiv_talepler, 'arsiv_modu': True}
+    return render(request, 'icmal.html', context)
+
+@login_required
+def talep_arsivden_cikar(request, talep_id):
+    if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'YONETICI']):
+        return redirect('erisim_engellendi')
+    talep = get_object_or_404(MalzemeTalep, id=talep_id)
+    if talep.durum == 'tamamlandi':
+        talep.durum = 'onaylandi'
+        talep.save()
+        messages.success(request, f"♻️ {talep.malzeme.isim} arşivden çıkarıldı ve aktif listeye geri döndü.")
+    return redirect('arsiv_raporu')
