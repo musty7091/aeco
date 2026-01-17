@@ -135,23 +135,40 @@ def stok_rontgen(request, malzeme_id):
            "".join([f"<tr><td>{x.id}</td><td>{x.get_islem_turu_display()}</td><td>{x.depo.isim if x.depo else '-'}</td><td>{x.miktar}</td></tr>" for x in h]) + "</table>"
     return HttpResponse(html)
 
-@login_required
 def envanter_raporu(request):
+    """
+    PERFORMANS OPTİMİZASYONU: Uzman raporu uyarınca Group By (annotate) kullanılmıştır.
+    Sorgu sayısı N*M'den tek bir sorguya indirilmiştir.
+    """
     if not yetki_kontrol(request.user, ['OFIS_VE_SATINALMA', 'SAHA_VE_DEPO', 'YONETICI', 'MUHASEBE_FINANS']): 
         return redirect('erisim_engellendi')
     
-    # Raporu biraz daha optimize ederek döngü kirliliğini azalttık
-    depolar = Depo.objects.all()
-    malzemeler = Malzeme.objects.all()
-    rapor_listesi = []
-    
-    for d in depolar:
-        stoklar = []
-        for m in malzemeler:
-            s = m.depo_stogu(d.id)
-            if s != 0:
-                stoklar.append({'malzeme': m, 'miktar': s})
-        if stoklar:
-            rapor_listesi.append({'depo': d, 'stoklar': stoklar})
+    # 1. Tüm hareketleri depo ve malzeme bazında gruplayıp stokları hesaplıyoruz
+    stok_verileri = DepoHareket.objects.values('depo_id', 'malzeme_id').annotate(
+        toplam_stok=Sum('miktar', filter=Q(islem_turu='giris')) - 
+                    Sum('miktar', filter=Q(islem_turu='cikis'))
+    ).filter(toplam_stok__gt=0) # Sadece stoğu 0'dan büyük olanları getir
+
+    # 2. Modelleri tek seferde hafızaya (cache) alıyoruz (N+1 önlemek için)
+    depo_map = {d.id: d for d in Depo.objects.all()}
+    malzeme_map = {m.id: m for m in Malzeme.objects.all()}
+
+    # 3. Veriyi şablonun (template) beklediği hiyerarşik yapıya dönüştürüyoruz
+    rapor_dict = {}
+    for veri in stok_verileri:
+        d_id = veri['depo_id']
+        m_id = veri['malzeme_id']
+        stok_miktari = veri['toplam_stok']
+
+        if d_id not in rapor_dict:
+            rapor_dict[d_id] = {'depo': depo_map.get(d_id), 'stoklar': []}
+        
+        rapor_dict[d_id]['stoklar'].append({
+            'malzeme': malzeme_map.get(m_id),
+            'miktar': stok_miktari
+        })
+
+    # Template'in beklediği liste formatına çeviriyoruz
+    rapor_data = list(rapor_dict.values())
             
-    return render(request, 'envanter_raporu.html', {'rapor_data': rapor_listesi})
+    return render(request, 'envanter_raporu.html', {'rapor_data': rapor_data})

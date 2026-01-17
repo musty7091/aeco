@@ -82,12 +82,12 @@ def fatura_girisi(request, siparis_id=None):
             fatura.kayit_eden = request.user
             fatura.save()
             
-            # F() Kullanımı: Yarış durumunu önlemek için
+            # F() Kullanımı: Yarış durumunu (Lost Update) önlemek için
             SatinAlma.objects.filter(id=secili_siparis.id).update(
                 faturalanan_miktar=F('faturalanan_miktar') + fatura.miktar
             )
 
-            # Sadece hata veren alan isimlerini modelinize (core/models.py) göre düzelttim:
+            # Sanal depoya giriş hareketi
             DepoHareket.objects.create(
                 siparis=secili_siparis,
                 depo=fatura.depo, 
@@ -131,6 +131,10 @@ def fatura_girisi(request, siparis_id=None):
 
 @login_required
 def mal_kabul_islem(request, siparis_id):
+    """
+    GÜNCEL AKIŞ: Manuel stok hareketi yerine DepoTransfer kullanır.
+    Böylece çift kayıt ve yanlış field (hareket_turu) hataları önlenir.
+    """
     if not yetki_kontrol(request.user, ['SAHA_VE_DEPO', 'YONETICI']):
         return redirect('erisim_engellendi')
         
@@ -148,8 +152,8 @@ def mal_kabul_islem(request, siparis_id):
 
         sanal_depo = Depo.objects.filter(is_sanal=True).first()
         
-        # ✅ UZMAN ÖNERİSİ: Çakışmayı önlemek için manuel DepoHareket yerine Transfer oluşturuyoruz.
-        # Bu işlem core/signals.py üzerinden doğru alan isimleriyle (islem_turu) çalışır.
+        # ✅ TEK YOL: Manuel DepoHareket yerine Transfer oluşturuyoruz.
+        # Bu işlem core/signals.py üzerinden merkezi olarak yönetilir.
         DepoTransfer.objects.create(
             malzeme=siparis.teklif.malzeme,
             miktar=miktar,
@@ -160,7 +164,7 @@ def mal_kabul_islem(request, siparis_id):
             notlar=f"Satın alma mal kabulü: {siparis.id}"
         )
 
-        # Teslim edilen miktarı güvenli şekilde artırıyoruz
+        # Teslim edilen miktarı güvenli şekilde (F() ile) artırıyoruz
         SatinAlma.objects.filter(id=siparis.id).update(
             teslim_edilen=F('teslim_edilen') + miktar
         )
@@ -197,7 +201,7 @@ def fatura_sil(request, fatura_id):
         faturalanan_miktar=F('faturalanan_miktar') - fatura.miktar
     )
     
-    # KRİTİK DÜZELTME: Faturaya bağlı DepoHareket kaydını bul ve sil
+    # Faturaya bağlı DepoHareket kaydını bul ve sil
     DepoHareket.objects.filter(
         siparis=siparis, 
         miktar=fatura.miktar, 
@@ -208,4 +212,3 @@ def fatura_sil(request, fatura_id):
     fatura.delete()
     messages.warning(request, f"🗑️ {fatura.fatura_no} nolu fatura ve ilgili stok girişi silindi.")
     return redirect('siparis_detay', siparis_id=siparis.id)
-
