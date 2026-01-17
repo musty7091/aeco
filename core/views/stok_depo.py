@@ -15,9 +15,9 @@ def depo_dashboard(request):
     
     # N+1 Query Çözümü: Tek sorguda tüm stokları hesaplıyoruz
     malzemeler = Malzeme.objects.annotate(
-        hesaplanan_stok=Sum('depo_hareketleri__miktar', filter=Q(depo_hareketleri__islem_turu='giris')) - 
-                        Sum('depo_hareketleri__miktar', filter=Q(depo_hareketleri__islem_turu='cikis'))
-    )
+        giren=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='giris')),
+        cikan=Sum('hareketler__miktar', filter=Q(hareketler__islem_turu='cikis')),
+    ).annotate(hesaplanan_stok=F('giren') - F('cikan'))
 
     depo_ozeti = []
     for mal in malzemeler:

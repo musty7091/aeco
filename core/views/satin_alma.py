@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
-from core.models import SatinAlma, Depo, DepoHareket, Fatura
+from core.models import SatinAlma, Depo, DepoHareket, Fatura, DepoTransfer
 from core.forms import FaturaGirisForm
 from .guvenlik import yetki_kontrol
 from core.utils import to_decimal
@@ -81,6 +81,8 @@ def fatura_girisi(request, siparis_id=None):
             fatura.satinalma = secili_siparis
             fatura.kayit_eden = request.user
             fatura.save()
+            
+            # F() Kullanımı: Yarış durumunu önlemek için
             SatinAlma.objects.filter(id=secili_siparis.id).update(
                 faturalanan_miktar=F('faturalanan_miktar') + fatura.miktar
             )
@@ -91,7 +93,7 @@ def fatura_girisi(request, siparis_id=None):
                 depo=fatura.depo, 
                 malzeme=secili_siparis.teklif.malzeme,
                 miktar=fatura.miktar,
-                islem_turu='giris', # 'hareket_turu' alanını 'islem_turu' yaptım
+                islem_turu='giris', 
                 aciklama=f"{fatura.fatura_no} nolu fatura ile sanal stok girişi"
             )
 
@@ -146,24 +148,21 @@ def mal_kabul_islem(request, siparis_id):
 
         sanal_depo = Depo.objects.filter(is_sanal=True).first()
         
-        # 1. Sanal Depodan ÇIKIŞ
-        DepoHareket.objects.create(
-            siparis=siparis,
-            depo=sanal_depo,
+        # ✅ UZMAN ÖNERİSİ: Çakışmayı önlemek için manuel DepoHareket yerine Transfer oluşturuyoruz.
+        # Bu işlem core/signals.py üzerinden doğru alan isimleriyle (islem_turu) çalışır.
+        DepoTransfer.objects.create(
             malzeme=siparis.teklif.malzeme,
             miktar=miktar,
-            hareket_turu='cikis',
-            aciklama=f"Şantiyeye ({hedef_depo.isim}) sevk edildi."
+            kaynak_depo=sanal_depo,
+            hedef_depo=hedef_depo,
+            bagli_siparis=siparis,
+            tarih=timezone.now().date(),
+            notlar=f"Satın alma mal kabulü: {siparis.id}"
         )
 
-        # 2. Fiziksel Depoya GİRİŞ
-        DepoHareket.objects.create(
-            siparis=siparis,
-            depo=hedef_depo,
-            malzeme=siparis.teklif.malzeme,
-            miktar=miktar,
-            hareket_turu='giris',
-            aciklama=f"Sanal depodan mal kabul yapıldı."
+        # Teslim edilen miktarı güvenli şekilde artırıyoruz
+        SatinAlma.objects.filter(id=siparis.id).update(
+            teslim_edilen=F('teslim_edilen') + miktar
         )
 
         messages.success(request, f"✅ {miktar} birim mal başarıyla {hedef_depo.isim} deposuna alındı.")
@@ -192,19 +191,21 @@ def fatura_sil(request, fatura_id):
     
     fatura = get_object_or_404(Fatura, id=fatura_id)
     siparis = fatura.satinalma
+    
+    # F() ile güvenli miktar güncelleme
     SatinAlma.objects.filter(id=siparis.id).update(
         faturalanan_miktar=F('faturalanan_miktar') - fatura.miktar
     )
     
     # KRİTİK DÜZELTME: Faturaya bağlı DepoHareket kaydını bul ve sil
-    # Modelindeki alan isminin 'islem_turu' olduğunu ve 'giris' olarak kaydedildiğini hatırlayalım.
     DepoHareket.objects.filter(
         siparis=siparis, 
         miktar=fatura.miktar, 
         islem_turu='giris',
-        aciklama__icontains=fatura.fatura_no # Fatura numarası üzerinden eşleşme en güvenlisidir
+        aciklama__icontains=fatura.fatura_no
     ).delete()
     
     fatura.delete()
     messages.warning(request, f"🗑️ {fatura.fatura_no} nolu fatura ve ilgili stok girişi silindi.")
     return redirect('siparis_detay', siparis_id=siparis.id)
+
